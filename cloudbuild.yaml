@@ -1,0 +1,13 @@
+options:
+  env:
+    - "APP=flynn-hubauth"
+    - "REGION=us-central-1"
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/$APP', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/$PROJECT_ID/$APP']
+- name: 'gcr.io/cloud-builders/gcloud'
+  args: ['beta', 'run', 'deploy', '$APP', '--image', 'gcr.io/$PROJECT_ID/$APP', '--region', '$REGION']
+images:
+- gcr.io/$PROJECT_ID/$APP

@@ -17,8 +17,6 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-const baseURL = "https://accounts.google.com"
-
 func New(clientID, clientSecret, redirectURL string, internalSecret []byte) rp.AuthService {
 	return &service{
 		conf: &oauth2.Config{
@@ -37,10 +35,13 @@ type service struct {
 	secret []byte
 }
 
+const nonceExpiry = 5 * time.Minute
+const nonceLen = 17 + sha256.Size
+
 func (s *service) newNonce() string {
-	expiry := time.Now().Add(time.Minute)
-	// version (1 byte) | expiry unix seconds (8 bytes) | random (8 bytes)
-	data := make([]byte, 17)
+	expiry := time.Now().Add(nonceExpiry)
+	// version (1 byte) | expiry unix seconds (8 bytes) | random (8 bytes) | HMAC-SHA256 (32 bytes)
+	data := make([]byte, 17, nonceLen)
 	binary.BigEndian.PutUint64(data[1:], uint64(expiry.Unix()))
 	if _, err := io.ReadFull(rand.Reader, data[9:]); err != nil {
 		panic(err)
@@ -56,8 +57,8 @@ func (s *service) checkNonce(n string) bool {
 		return false
 	}
 
-	if len(nonce) < sha256.Size+1 {
-		// too short
+	if len(nonce) != nonceLen {
+		// incorrect length
 		return false
 	}
 
@@ -74,7 +75,7 @@ func (s *service) checkNonce(n string) bool {
 	}
 
 	exp := time.Unix(int64(binary.BigEndian.Uint64(nonce[1:])), 0)
-	return !exp.After(time.Now())
+	return exp.After(time.Now())
 }
 
 func (s *service) Redirect() *rp.AuthCodeRedirect {
@@ -136,7 +137,7 @@ func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token
 		return nil, rp.Error{Message: "id_token missing nonce", Code: codeInvalid}
 	}
 	if idt.EmailVerified != "true" || idt.Email == "" || idt.Sub == "" {
-		return nil, rp.Error{Message: "id_toke missing user", Code: codeInvalid}
+		return nil, rp.Error{Message: "id_token missing user", Code: codeInvalid}
 	}
 
 	return &rp.Token{

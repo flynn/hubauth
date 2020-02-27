@@ -6,13 +6,13 @@ steps:
   args: ['push', 'gcr.io/$PROJECT_ID/$_APP']
 - name: 'gcr.io/cloud-builders/gcloud'
   waitFor: ['push']
-  args: ['beta', 'run', 'deploy', '$_APP-ext-$_DEPLOY_REGION_PRIMARY', '--image', 'gcr.io/$PROJECT_ID/$_APP', '--region', '$_DEPLOY_REGION_PRIMARY', '--platform', 'managed']
+  args: ['beta', 'run', 'deploy', '$_APP-ext-$_DEPLOY_REGION_PRIMARY', '--image', 'gcr.io/$PROJECT_ID/$_APP', '--region', '$_DEPLOY_REGION_PRIMARY', '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA', '--platform', 'managed']
 - name: 'gcr.io/cloud-builders/gcloud'
   waitFor: ['push']
-  args: ['beta', 'run', 'deploy', '$_APP-ext-$_DEPLOY_REGION_FALLBACK', '--image', 'gcr.io/$PROJECT_ID/$_APP', '--region', '$_DEPLOY_REGION_FALLBACK', '--platform', 'managed']
+  args: ['beta', 'run', 'deploy', '$_APP-ext-$_DEPLOY_REGION_FALLBACK', '--image', 'gcr.io/$PROJECT_ID/$_APP', '--region', '$_DEPLOY_REGION_FALLBACK', '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA', '--platform', 'managed']
 - name: 'gcr.io/cloud-builders/gcloud'
   waitFor: ['push']
-  args: ['beta', 'run', 'deploy', '$_APP-int-$_DEPLOY_REGION_PRIMARY', '--image', 'gcr.io/$PROJECT_ID/$_APP', '--region', '$_DEPLOY_REGION_PRIMARY', '--platform', 'managed']
+  args: ['beta', 'run', 'deploy', '$_APP-int-$_DEPLOY_REGION_PRIMARY', '--image', 'gcr.io/$PROJECT_ID/$_APP', '--region', '$_DEPLOY_REGION_PRIMARY', '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA', '--platform', 'managed']
 images:
 - gcr.io/$PROJECT_ID/$_APP
 substitutions:

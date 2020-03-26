@@ -2,7 +2,7 @@ steps:
 - name: 'gcr.io/kaniko-project/executor'
   id: build
   args: [
-    '--dockerfile=Dockerfile',
+    '--dockerfile=build.Dockerfile',
     '--context=.',
     '--destination=gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',
   ]

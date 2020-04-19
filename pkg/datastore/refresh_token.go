@@ -99,7 +99,7 @@ func (s *Service) RenewRefreshToken(ctx context.Context, id string) (*hubauth.Re
 			}
 			return err
 		}
-		now := time.Now()
+		now := time.Now().Truncate(time.Millisecond)
 		if now.After(t.ExpiryTime) {
 			return hubauth.ErrExpired
 		}

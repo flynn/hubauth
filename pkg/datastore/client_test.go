@@ -38,9 +38,8 @@ func TestClientCRD(t *testing.T) {
 
 	res, err := s.GetClient(ctx, id)
 	require.NoError(t, err)
-
-	require.False(t, res.CreateTime.IsZero())
-	require.False(t, res.UpdateTime.IsZero())
+	require.WithinDuration(t, time.Now(), res.CreateTime, time.Second)
+	require.Equal(t, res.CreateTime, res.UpdateTime)
 	res.CreateTime = time.Time{}
 	res.UpdateTime = time.Time{}
 	c.ID = id
@@ -53,8 +52,6 @@ func TestClientCRD(t *testing.T) {
 			break
 		}
 	}
-	require.False(t, res.CreateTime.IsZero())
-	require.False(t, res.UpdateTime.IsZero())
 	res.CreateTime = time.Time{}
 	res.UpdateTime = time.Time{}
 	require.Equal(t, c, res)
@@ -313,19 +310,23 @@ func TestClientMutate(t *testing.T) {
 	for _, tt := range tests {
 		id, err := s.CreateClient(ctx, tt.before)
 		require.NoError(t, err, tt.desc)
+		before, err := s.GetClient(ctx, id)
+		require.NoError(t, err)
 
 		err = s.MutateClient(ctx, id, tt.mut)
 		require.NoError(t, err, tt.desc)
 
-		c, err := s.GetClient(ctx, id)
+		res, err := s.GetClient(ctx, id)
 		require.NoError(t, err, tt.desc)
-		c.ID = ""
-		if len(c.Policies) == 0 {
-			c.Policies = nil
+		res.ID = ""
+		if len(res.Policies) == 0 {
+			res.Policies = nil
 		}
-		c.CreateTime = time.Time{}
-		c.UpdateTime = time.Time{}
-		require.Equal(t, tt.after, c, tt.desc)
+		require.Equal(t, before.CreateTime, res.CreateTime)
+
+		res.CreateTime = time.Time{}
+		res.UpdateTime = time.Time{}
+		require.Equal(t, tt.after, res, tt.desc)
 
 		s.DeleteClient(ctx, id)
 	}

@@ -11,7 +11,7 @@ import (
 	"golang.org/x/exp/errors"
 )
 
-func TestCodeCRUD(t *testing.T) {
+func TestCodeCRD(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
 
@@ -27,7 +27,7 @@ func TestCodeCRUD(t *testing.T) {
 
 	res, err := s.GetCode(ctx, id)
 	require.NoError(t, err)
-	require.NotZero(t, res.CreateTime)
+	require.WithinDuration(t, time.Now(), res.CreateTime, time.Second)
 	res.CreateTime = time.Time{}
 	c.Code = id
 	require.Equal(t, c, res)
@@ -64,17 +64,20 @@ func TestCodeDeleteExpired(t *testing.T) {
 
 	deleted, err := s.DeleteExpiredCodes(ctx)
 	require.NoError(t, err)
-	require.Len(t, deleted, 2)
-	var found1, found2 bool
+	var found1, found2, foundKeep bool
 	for _, id := range deleted {
 		switch id {
 		case expired1:
 			found1 = true
 		case expired2:
 			found2 = true
+		case keep:
+			foundKeep = true
 		}
 	}
-	require.True(t, found1 && found2)
+	require.True(t, found1)
+	require.True(t, found2)
+	require.False(t, foundKeep)
 
 	_, err = s.GetCode(ctx, keep)
 	require.NoError(t, err)

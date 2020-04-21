@@ -48,6 +48,7 @@ func TestCachedGroupCRD(t *testing.T) {
 			break
 		}
 	}
+	require.NotNil(t, readGroup)
 	require.WithinDuration(t, time.Now(), readGroup.CreateTime, time.Second)
 	require.Equal(t, readGroup.CreateTime, readGroup.UpdateTime)
 	readGroup.CreateTime = time.Time{}

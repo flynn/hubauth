@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/datastore"
@@ -67,7 +68,7 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 			return fmt.Errorf("failed to get existing cached group: %w", err)
 		}
 		var existingMembers []*cachedGroupMember
-		if existingGroup == nil {
+		if existingGroup != nil {
 			q := datastore.NewQuery(kindCachedGroupMember).Ancestor(k).Transaction(tx)
 			if _, err := s.db.GetAll(ctx, q, &existingMembers); err != nil {
 				return fmt.Errorf("failed to get existing members: %w", err)
@@ -80,7 +81,7 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 			newData, ok := newSet[m.UserID]
 			if !ok {
 				if err := tx.Delete(m.Key); err != nil {
-					return err
+					return fmt.Errorf("failed to delete member %s: %w", m.Key.Encode(), err)
 				}
 				res.DeletedMembers = append(res.DeletedMembers, m.UserID)
 				continue
@@ -90,7 +91,7 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 				m.Etag = newData.Etag
 				m.UpdateTime = now
 				if _, err := tx.Put(m.Key, m); err != nil {
-					return err
+					return fmt.Errorf("failed to put update member %s: %w", m.Key.Encode(), err)
 				}
 				res.UpdatedMembers = append(res.UpdatedMembers, m.UserID)
 			}
@@ -101,8 +102,9 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 			if exists {
 				continue
 			}
+			memberKey := datastore.NameKey(kindCachedGroupMember, m.UserID, k)
 			_, err := tx.Put(
-				datastore.NameKey(kindCachedGroupMember, m.UserID, k),
+				memberKey,
 				&cachedGroupMember{
 					UserID:     m.UserID,
 					Email:      m.Email,
@@ -112,7 +114,7 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 				},
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to put create member %s: %w", memberKey.Encode(), err)
 			}
 			res.AddedMembers = append(res.AddedMembers, m.UserID)
 		}
@@ -121,8 +123,11 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 			existingGroup.Email = group.Email
 			existingGroup.Etag = group.Etag
 			existingGroup.UpdateTime = now
-			if _, err := tx.Put(existingGroup.Key, existingGroup); err != nil {
-				return err
+			if existingGroup.CreateTime.IsZero() {
+				existingGroup.CreateTime = now
+			}
+			if _, err := tx.Put(k, existingGroup); err != nil {
+				return fmt.Errorf("failed to put group %s: %w", k.Encode(), err)
 			}
 			res.UpdatedGroup = true
 		}
@@ -132,23 +137,30 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 	if err != nil {
 		return nil, fmt.Errorf("datastore: error setting cached group %s (%s) for domain %s: %w", group.Email, group.GroupID, group.Domain, err)
 	}
+	sort.Strings(res.AddedMembers)
+	sort.Strings(res.DeletedMembers)
+	sort.Strings(res.UpdatedMembers)
 	return res, nil
 }
 
-func (s *Service) GetCachedMemberGroups(ctx context.Context, userID string) ([]string, error) {
-	keys, err := s.db.GetAll(ctx, datastore.NewQuery(kindCachedGroupMember).KeysOnly().Filter("UserID =", userID), nil)
+func (s *Service) GetCachedMemberGroups(ctx context.Context, domain, userID string) ([]string, error) {
+	keys, err := s.db.GetAll(
+		ctx,
+		datastore.NewQuery(kindCachedGroupMember).KeysOnly().Ancestor(datastore.NameKey(kindDomain, domain, nil)).Filter("UserID =", userID),
+		nil,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("datastore: error getting groups for user %s: %w", userID, err)
 	}
 	res := make([]string, len(keys))
 	for i, k := range keys {
-		res[i] = k.Name
+		res[i] = k.Parent.Name
 	}
 	return res, nil
 }
 
-func (s *Service) DeleteCachedGroup(ctx context.Context, domain, group string) error {
-	k := datastore.NameKey(kindCachedGroup, group, datastore.NameKey(kindDomain, domain, nil))
+func (s *Service) DeleteCachedGroup(ctx context.Context, domain, groupID string) error {
+	k := datastore.NameKey(kindCachedGroup, groupID, datastore.NameKey(kindDomain, domain, nil))
 	q := datastore.NewQuery(kindCachedGroupMember).Ancestor(k).KeysOnly()
 	_, err := s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
 		keys, err := s.db.GetAll(ctx, q.Transaction(tx), nil)
@@ -161,7 +173,7 @@ func (s *Service) DeleteCachedGroup(ctx context.Context, domain, group string) e
 		return tx.Delete(k)
 	})
 	if err != nil {
-		return fmt.Errorf("datastore: error deleting cached group %s in domain %s: %w", group, domain, err)
+		return fmt.Errorf("datastore: error deleting cached group %s in domain %s: %w", groupID, domain, err)
 	}
 	return nil
 }

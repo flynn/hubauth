@@ -24,6 +24,7 @@ func TestRefreshTokenCRUD(t *testing.T) {
 	require.NoError(t, err)
 
 	res, err := s.GetRefreshToken(ctx, id)
+	require.NoError(t, err)
 	require.WithinDuration(t, time.Now(), res.CreateTime, time.Second)
 	require.Equal(t, res.CreateTime, res.RenewTime)
 	rt.CreateTime = res.CreateTime

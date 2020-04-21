@@ -93,8 +93,8 @@ type SetCachedGroupResult struct {
 type CachedGroupStore interface {
 	ListCachedGroups(ctx context.Context) ([]*CachedGroup, error)
 	SetCachedGroup(ctx context.Context, group *CachedGroup, members []*CachedGroupMember) (*SetCachedGroupResult, error)
-	GetCachedMemberGroups(ctx context.Context, userID string) ([]string, error)
-	DeleteCachedGroup(ctx context.Context, domain, group string) error
+	GetCachedMemberGroups(ctx context.Context, domain, userID string) ([]string, error)
+	DeleteCachedGroup(ctx context.Context, domain, groupID string) error
 }
 
 type CachedGroup struct {
@@ -107,11 +107,7 @@ type CachedGroup struct {
 }
 
 type CachedGroupMember struct {
-	Domain     string
-	GroupID    string
-	UserID     string
-	Email      string
-	Etag       string
-	UpdateTime time.Time
-	CreateTime time.Time
+	UserID string
+	Email  string
+	Etag   string
 }

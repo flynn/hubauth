@@ -14,10 +14,15 @@ func buildRefreshToken(t *hubauth.RefreshToken) (*refreshToken, error) {
 	if err != nil {
 		return nil, err
 	}
+	codeKey, err := codeKey(t.CodeID)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	return &refreshToken{
 		Key:        datastore.NameKey(kindRefreshToken, newRandomID(), parentKey),
-		User:       t.User,
+		UserID:     t.UserID,
+		Code:       codeKey,
 		Version:    0,
 		CreateTime: now,
 		RenewTime:  now,
@@ -27,8 +32,9 @@ func buildRefreshToken(t *hubauth.RefreshToken) (*refreshToken, error) {
 
 type refreshToken struct {
 	Key        *datastore.Key `datastore:"__key__"`
-	User       string
-	Version    int64 `datastore:",noindex"`
+	UserID     string
+	Code       *datastore.Key
+	Version    int `datastore:",noindex"`
 	CreateTime time.Time
 	RenewTime  time.Time
 	ExpiryTime time.Time
@@ -38,7 +44,8 @@ func (t *refreshToken) Export() *hubauth.RefreshToken {
 	return &hubauth.RefreshToken{
 		ID:         t.Key.Encode(),
 		ClientID:   t.Key.Parent.Encode(),
-		User:       t.User,
+		UserID:     t.UserID,
+		CodeID:     t.Code.Encode(),
 		Version:    t.Version,
 		CreateTime: t.CreateTime,
 		RenewTime:  t.RenewTime,
@@ -86,12 +93,13 @@ func (s *Service) CreateRefreshToken(ctx context.Context, token *hubauth.Refresh
 	return data.Key.Encode(), nil
 }
 
-func (s *Service) RenewRefreshToken(ctx context.Context, id string) (*hubauth.RefreshToken, error) {
+func (s *Service) RenewRefreshToken(ctx context.Context, id string, version int) (*hubauth.RefreshToken, error) {
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return nil, err
 	}
 	t := &refreshToken{}
+	versionMismatch := false
 	_, err = s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
 		if err := tx.Get(k, t); err != nil {
 			if err == datastore.ErrNoSuchEntity {
@@ -103,11 +111,21 @@ func (s *Service) RenewRefreshToken(ctx context.Context, id string) (*hubauth.Re
 		if now.After(t.ExpiryTime) {
 			return hubauth.ErrExpired
 		}
+		if t.Version != version {
+			if err := tx.Delete(k); err != nil {
+				return err
+			}
+			versionMismatch = true
+			return nil
+		}
 		t.Version++
 		t.RenewTime = now
 		_, err = tx.Put(k, t)
 		return err
 	})
+	if versionMismatch {
+		err = hubauth.ErrRefreshTokenVersionMismatch
+	}
 	if err != nil {
 		return nil, fmt.Errorf("datastore: error renewing refresh token %s: %w", id, err)
 	}
@@ -123,6 +141,29 @@ func (s *Service) DeleteRefreshToken(ctx context.Context, id string) error {
 		return fmt.Errorf("datastore: error deleting refresh token %s: %w", id, err)
 	}
 	return nil
+}
+
+func (s *Service) DeleteRefreshTokensWithCode(ctx context.Context, c string) ([]string, error) {
+	parsedCodeKey, err := codeKey(c)
+	if err != nil {
+		return nil, err
+	}
+	q := datastore.NewQuery(kindRefreshToken).Filter("Code = ", parsedCodeKey).KeysOnly()
+	keys, err := s.db.GetAll(ctx, q, nil)
+	if err != nil {
+		return nil, fmt.Errorf("datastore: error listing refresh tokens with code %s: %w", c, err)
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	if err := s.db.DeleteMulti(ctx, keys); err != nil {
+		return nil, fmt.Errorf("datastore: error deleting refresh tokens with code %s: %w", c, err)
+	}
+	res := make([]string, len(keys))
+	for i, k := range keys {
+		res[i] = k.Encode()
+	}
+	return res, nil
 }
 
 func (s *Service) DeleteExpiredRefreshTokens(ctx context.Context) ([]string, error) {

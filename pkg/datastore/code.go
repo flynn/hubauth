@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"context"
+	"crypto/hmac"
 	"time"
 
 	"cloud.google.com/go/datastore"
@@ -16,6 +17,8 @@ func buildCode(c *hubauth.Code) (*code, error) {
 	}
 	return &code{
 		Key:           datastore.NameKey(kindCode, newRandomID(), parentKey),
+		Secret:        newRandomID(),
+		UserID:        c.UserID,
 		RedirectURI:   c.RedirectURI,
 		Nonce:         c.Nonce,
 		PKCEChallenge: c.PKCEChallenge,
@@ -26,6 +29,8 @@ func buildCode(c *hubauth.Code) (*code, error) {
 
 type code struct {
 	Key           *datastore.Key `datastore:"__key__"`
+	Secret        string
+	UserID        string
 	RedirectURI   string
 	Nonce         string `datastore:",noindex"`
 	PKCEChallenge string `datastore:",noindex"`
@@ -35,8 +40,10 @@ type code struct {
 
 func (c *code) Export() *hubauth.Code {
 	return &hubauth.Code{
-		Code:          c.Key.Encode(),
+		ID:            c.Key.Encode(),
+		Secret:        c.Secret,
 		ClientID:      c.Key.Parent.Encode(),
+		UserID:        c.UserID,
 		RedirectURI:   c.RedirectURI,
 		Nonce:         c.Nonce,
 		PKCEChallenge: c.PKCEChallenge,
@@ -59,8 +66,8 @@ func codeKey(code string) (*datastore.Key, error) {
 	return k, nil
 }
 
-func (s *Service) GetCode(ctx context.Context, c string) (*hubauth.Code, error) {
-	k, err := codeKey(c)
+func (s *Service) GetCode(ctx context.Context, id string) (*hubauth.Code, error) {
+	k, err := codeKey(id)
 	if err != nil {
 		return nil, err
 	}
@@ -69,20 +76,45 @@ func (s *Service) GetCode(ctx context.Context, c string) (*hubauth.Code, error) 
 		if err == datastore.ErrNoSuchEntity {
 			err = hubauth.ErrNotFound
 		}
-		return nil, fmt.Errorf("datastore: error fetching code %s: %w", c, err)
+		return nil, fmt.Errorf("datastore: error fetching code %s: %w", id, err)
 	}
 	return res.Export(), nil
 }
 
-func (s *Service) CreateCode(ctx context.Context, code *hubauth.Code) (string, error) {
+func (s *Service) VerifyAndDeleteCode(ctx context.Context, id, secret string) (*hubauth.Code, error) {
+	k, err := codeKey(id)
+	if err != nil {
+		return nil, err
+	}
+	res := &code{}
+	_, err = s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
+		if err := tx.Get(k, res); err != nil {
+			return err
+		}
+		return tx.Delete(k)
+	})
+	// constant time compare is overkill here because this should only run once, but do it anyway
+	if err == nil && !hmac.Equal([]byte(res.Secret), []byte(secret)) {
+		err = hubauth.ErrIncorrectCodeSecret
+	}
+	if err != nil {
+		if err == datastore.ErrNoSuchEntity {
+			err = hubauth.ErrNotFound
+		}
+		return nil, fmt.Errorf("datastore: error verifying and deleting code %s: %w", id, err)
+	}
+	return res.Export(), nil
+}
+
+func (s *Service) CreateCode(ctx context.Context, code *hubauth.Code) (string, string, error) {
 	data, err := buildCode(code)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if _, err := s.db.Put(ctx, data.Key, data); err != nil {
-		return "", fmt.Errorf("datastore: error creating code: %w", err)
+		return "", "", fmt.Errorf("datastore: error creating code: %w", err)
 	}
-	return data.Key.Encode(), nil
+	return data.Key.Encode(), data.Secret, nil
 }
 
 func (s *Service) DeleteCode(ctx context.Context, code string) error {

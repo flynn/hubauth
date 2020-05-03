@@ -17,4 +17,4 @@ RUN cd /app && go mod download
 ADD . /app
 
 WORKDIR /app
-ENTRYPOINT ["/app/script/test.sh"]
+CMD ["/app/script/test.sh"]

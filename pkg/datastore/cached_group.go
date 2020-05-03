@@ -143,10 +143,10 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 	return res, nil
 }
 
-func (s *Service) GetCachedMemberGroups(ctx context.Context, domain, userID string) ([]string, error) {
+func (s *Service) GetCachedMemberGroups(ctx context.Context, userID string) ([]string, error) {
 	keys, err := s.db.GetAll(
 		ctx,
-		datastore.NewQuery(kindCachedGroupMember).KeysOnly().Ancestor(datastore.NameKey(kindDomain, domain, nil)).Filter("UserID =", userID),
+		datastore.NewQuery(kindCachedGroupMember).KeysOnly().Filter("UserID =", userID),
 		nil,
 	)
 	if err != nil {

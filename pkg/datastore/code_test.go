@@ -22,18 +22,66 @@ func TestCodeCRD(t *testing.T) {
 		PKCEChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
 		ExpiryTime:    time.Now().Add(time.Minute).Truncate(time.Millisecond),
 	}
-	id, err := s.CreateCode(ctx, c)
+	id, secret, err := s.CreateCode(ctx, c)
 	require.NoError(t, err)
 
 	res, err := s.GetCode(ctx, id)
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now(), res.CreateTime, time.Second)
 	res.CreateTime = time.Time{}
-	c.Code = id
+	c.ID = id
+	c.Secret = secret
 	require.Equal(t, c, res)
 
 	err = s.DeleteCode(ctx, id)
 	require.NoError(t, err)
+
+	_, err = s.GetCode(ctx, id)
+	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
+}
+
+func TestCodeVerifyAndDeleteSuccess(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+
+	c := &hubauth.Code{
+		ClientID:      datastore.NameKey(kindClient, newRandomID(), nil).Encode(),
+		RedirectURI:   "https://example.com",
+		Nonce:         "asdf",
+		PKCEChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+		ExpiryTime:    time.Now().Add(time.Minute).Truncate(time.Millisecond),
+	}
+	id, secret, err := s.CreateCode(ctx, c)
+	require.NoError(t, err)
+
+	res, err := s.VerifyAndDeleteCode(ctx, id, secret)
+	require.NoError(t, err)
+	require.WithinDuration(t, time.Now(), res.CreateTime, time.Second)
+	res.CreateTime = time.Time{}
+	c.ID = id
+	c.Secret = secret
+	require.Equal(t, c, res)
+
+	_, err = s.GetCode(ctx, id)
+	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
+}
+
+func TestCodeVerifyAndDeleteWrongSecret(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+
+	c := &hubauth.Code{
+		ClientID:      datastore.NameKey(kindClient, newRandomID(), nil).Encode(),
+		RedirectURI:   "https://example.com",
+		Nonce:         "asdf",
+		PKCEChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+		ExpiryTime:    time.Now().Add(time.Minute).Truncate(time.Millisecond),
+	}
+	id, _, err := s.CreateCode(ctx, c)
+	require.NoError(t, err)
+
+	_, err = s.VerifyAndDeleteCode(ctx, id, "a")
+	require.Truef(t, errors.Is(err, hubauth.ErrIncorrectCodeSecret), "wrong err %v", err)
 
 	_, err = s.GetCode(ctx, id)
 	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
@@ -51,15 +99,15 @@ func TestCodeDeleteExpired(t *testing.T) {
 	}
 
 	c.ExpiryTime = time.Now().Add(time.Minute)
-	keep, err := s.CreateCode(ctx, c)
+	keep, _, err := s.CreateCode(ctx, c)
 	require.NoError(t, err)
 
 	c.ExpiryTime = time.Now().Add(-time.Minute)
-	expired1, err := s.CreateCode(ctx, c)
+	expired1, _, err := s.CreateCode(ctx, c)
 	require.NoError(t, err)
 
 	c.ExpiryTime = time.Now().Add(-time.Second)
-	expired2, err := s.CreateCode(ctx, c)
+	expired2, _, err := s.CreateCode(ctx, c)
 	require.NoError(t, err)
 
 	deleted, err := s.DeleteExpiredCodes(ctx)
@@ -85,4 +133,8 @@ func TestCodeDeleteExpired(t *testing.T) {
 	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
 	_, err = s.GetCode(ctx, expired2)
 	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
+
+	deleted, err = s.DeleteExpiredCodes(ctx)
+	require.NoError(t, err)
+	require.Len(t, deleted, 0)
 }

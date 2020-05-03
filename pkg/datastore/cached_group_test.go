@@ -56,7 +56,7 @@ func TestCachedGroupCRD(t *testing.T) {
 	require.Equal(t, cg, readGroup)
 
 	for _, id := range []string{"444", "443"} {
-		ids, err := s.GetCachedMemberGroups(ctx, cg.Domain, id)
+		ids, err := s.GetCachedMemberGroups(ctx, id)
 		require.NoError(t, err)
 		require.Len(t, ids, 1)
 		require.Equal(t, cg.GroupID, ids[0])
@@ -77,7 +77,7 @@ func TestCachedGroupCRD(t *testing.T) {
 	require.False(t, found)
 
 	for _, id := range []string{"444", "443"} {
-		ids, err := s.GetCachedMemberGroups(ctx, cg.Domain, id)
+		ids, err := s.GetCachedMemberGroups(ctx, id)
 		require.NoError(t, err)
 		require.Len(t, ids, 0)
 	}
@@ -355,14 +355,14 @@ func TestCachedGroupUpdate(t *testing.T) {
 		require.WithinDuration(t, time.Now(), listGroup.UpdateTime, time.Second, tt.desc)
 
 		for _, m := range tt.newMembers {
-			gs, err := s.GetCachedMemberGroups(ctx, tt.newGroup.Domain, m.UserID)
+			gs, err := s.GetCachedMemberGroups(ctx, m.UserID)
 			require.NoError(t, err, tt.desc)
 			require.Len(t, gs, 1, tt.desc)
 			require.Equal(t, gs[0], tt.newGroup.GroupID, tt.desc)
 		}
 
 		for _, m := range tt.result.DeletedMembers {
-			gs, err := s.GetCachedMemberGroups(ctx, tt.newGroup.Domain, m)
+			gs, err := s.GetCachedMemberGroups(ctx, m)
 			require.NoError(t, err, tt.desc)
 			require.Len(t, gs, 0, tt.desc)
 		}
@@ -402,7 +402,7 @@ func TestCachedGroupMultiGroupMember(t *testing.T) {
 	_, err = s.SetCachedGroup(ctx, cg2, members)
 	require.NoError(t, err)
 
-	res, err := s.GetCachedMemberGroups(ctx, cg1.Domain, members[0].UserID)
+	res, err := s.GetCachedMemberGroups(ctx, members[0].UserID)
 	require.NoError(t, err)
 	require.Len(t, res, 2)
 	require.Equal(t, res, []string{cg1.GroupID, cg2.GroupID})
@@ -412,7 +412,7 @@ func TestCachedGroupMultiGroupMember(t *testing.T) {
 	err = s.DeleteCachedGroup(ctx, cg2.Domain, cg2.GroupID)
 	require.NoError(t, err)
 
-	res, err = s.GetCachedMemberGroups(ctx, cg1.Domain, members[0].UserID)
+	res, err = s.GetCachedMemberGroups(ctx, members[0].UserID)
 	require.NoError(t, err)
 	require.Len(t, res, 0)
 }

@@ -30,11 +30,12 @@ type ClientStore interface {
 }
 
 type Client struct {
-	ID           string
-	RedirectURIs []string
-	Policies     []*GoogleUserPolicy
-	CreateTime   time.Time
-	UpdateTime   time.Time
+	ID                 string
+	RedirectURIs       []string
+	RefreshTokenExpiry time.Duration
+	Policies           []*GoogleUserPolicy
+	CreateTime         time.Time
+	UpdateTime         time.Time
 }
 
 type GoogleUserPolicy struct {

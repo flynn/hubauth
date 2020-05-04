@@ -126,7 +126,23 @@ func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if code.PKCEChallenge != challenge {
 		return nil, fmt.Errorf("idp: PKCE challenge mismatch")
 	}
-	// generate refresh token
+
+	client, err := s.db.GetClient(ctx, code.ClientID)
+	if err != nil {
+		return nil, fmt.Errorf("idp: error getting client %s: %w", code.ClientID, err)
+	}
+
+	rt := &hubauth.RefreshToken{
+		ClientID:   req.ClientID,
+		UserID:     code.UserID,
+		CodeID:     splitCode[0],
+		ExpiryTime: time.Now().Add(client.RefreshTokenExpiry),
+	}
+	rtID, err := s.db.CreateRefreshToken(ctx, rt)
+	if err != nil {
+		return nil, fmt.Errorf("idp: error creating refresh token for code %s: %w", splitCode[0], err)
+	}
+
 	// issue auth token
 	// return nonce
 	return nil, nil

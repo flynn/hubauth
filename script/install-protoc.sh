@@ -2,8 +2,8 @@
 
 set -eo pipefail
 
-protoc_version="3.11.4"
-protoc_shasum="6d0f18cd84b918c7b3edd0203e75569e0c8caecb1367bbbe409b45e28514f5be"
+protoc_version="3.12.0"
+protoc_shasum="3af5f90ad973c36bdaf5c4bd0082cfdc8881593ddf530fc6aa1442ee3d7a4e4b"
 
 protos_version="1_3_1"
 protos_shasum="9584b7ac21de5b31832faf827f898671cdcb034bd557a36ea3e7fc07e6571dcb"
@@ -35,4 +35,4 @@ echo "${gobin_shasum}  ${gobin_dest}" | shasum -c - || (shasum -a 256 "${gobin_d
 chmod +x "${gobin_dest}"
 
 cd "${ROOT}"
-GOBIN="${ROOT}/build/bin" "${gobin_dest}" -mod=readonly github.com/golang/protobuf/protoc-gen-go
+GOBIN="${ROOT}/build/bin" "${gobin_dest}" -mod=readonly google.golang.org/protobuf/cmd/protoc-gen-go

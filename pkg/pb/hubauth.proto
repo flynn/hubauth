@@ -13,3 +13,9 @@ message RefreshToken {
     bytes key = 1;
     uint64 version = 2;
 }
+
+message AuthToken {
+    google.protobuf.Timestamp expiry = 1;
+    bytes key = 2;
+    string user = 3;
+}

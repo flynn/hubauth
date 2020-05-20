@@ -6,15 +6,17 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"io"
 	"strings"
 	"time"
 
+	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
+	"github.com/golang/protobuf/ptypes"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/protobuf/proto"
 )
 
 func New(clientID, clientSecret, redirectURL string, internalSecret []byte) rp.AuthService {
@@ -36,45 +38,67 @@ type service struct {
 }
 
 const nonceExpiry = 5 * time.Minute
-const nonceLen = 17 + sha256.Size
+const nonceRandom = 8
 
 func (s *service) newNonce() string {
-	expiry := time.Now().Add(nonceExpiry)
-	// version (1 byte) | expiry unix seconds (8 bytes) | random (8 bytes) | HMAC-SHA256 (32 bytes)
-	data := make([]byte, 17, nonceLen)
-	binary.BigEndian.PutUint64(data[1:], uint64(expiry.Unix()))
-	if _, err := io.ReadFull(rand.Reader, data[9:]); err != nil {
+	return base64.URLEncoding.EncodeToString(genNonce(s.secret, time.Now().Add(nonceExpiry)))
+}
+
+func genNonce(secret []byte, expiry time.Time) []byte {
+	exp, err := ptypes.TimestampProto(expiry)
+	if err != nil {
+		// this should be unreachable
 		panic(err)
 	}
-	h := hmac.New(sha256.New, s.secret)
-	h.Write(data)
-	return base64.URLEncoding.EncodeToString(h.Sum(data))
+	n := &pb.Nonce{
+		Expiry: exp,
+		Random: make([]byte, nonceRandom),
+	}
+	if _, err := io.ReadFull(rand.Reader, n.Random); err != nil {
+		// this should be unreachable
+		panic(err)
+	}
+	msg, err := proto.Marshal(n)
+	if err != nil {
+		// this should be unreachable
+		panic(err)
+	}
+	h := hmac.New(sha256.New, secret)
+	h.Write(msg)
+	return h.Sum(msg)
 }
 
 func (s *service) checkNonce(n string) bool {
-	nonce, err := base64.URLEncoding.DecodeString(n)
+	msg, err := base64.URLEncoding.DecodeString(n)
 	if err != nil {
 		return false
 	}
 
-	if len(nonce) != nonceLen {
-		// incorrect length
-		return false
-	}
-
-	if nonce[0] != 0 {
-		// unexpected version
+	if len(msg) < sha256.Size+1 {
 		return false
 	}
 
 	h := hmac.New(sha256.New, s.secret)
-	h.Write(nonce[:len(nonce)-sha256.Size])
-	if !hmac.Equal(h.Sum(nil), nonce[len(nonce)-sha256.Size:]) {
+	h.Write(msg[:len(msg)-sha256.Size])
+	if !hmac.Equal(h.Sum(nil), msg[len(msg)-sha256.Size:]) {
 		// signature mismatch
 		return false
 	}
 
-	exp := time.Unix(int64(binary.BigEndian.Uint64(nonce[1:])), 0)
+	nonce := &pb.Nonce{}
+	if err := proto.Unmarshal(msg[:len(msg)-sha256.Size], nonce); err != nil {
+		return false
+	}
+
+	if len(nonce.Random) < nonceRandom {
+		// incorrect length
+		return false
+	}
+
+	exp, err := ptypes.Timestamp(nonce.Expiry)
+	if err != nil {
+		return false
+	}
 	return exp.After(time.Now())
 }
 

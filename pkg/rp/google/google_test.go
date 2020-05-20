@@ -1,12 +1,7 @@
 package google
 
 import (
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
-	"io"
 	"net/url"
 	"testing"
 	"time"
@@ -30,21 +25,7 @@ func TestRedirect(t *testing.T) {
 	}
 }
 
-func genNonce(expiry time.Time, secret []byte) []byte {
-	if secret == nil {
-		secret = []byte{0}
-	}
-
-	// version (1 byte) | expiry unix seconds (8 bytes) | random (8 bytes) | HMAC-SHA256 (32 bytes)
-	data := make([]byte, 17, nonceLen)
-	binary.BigEndian.PutUint64(data[1:], uint64(expiry.Unix()))
-	if _, err := io.ReadFull(rand.Reader, data[9:]); err != nil {
-		panic(err)
-	}
-	h := hmac.New(sha256.New, secret)
-	h.Write(data)
-	return h.Sum(data)
-}
+var testSecret = []byte{0}
 
 func TestCheckNonce(t *testing.T) {
 	s := &service{secret: []byte{0}}
@@ -56,12 +37,12 @@ func TestCheckNonce(t *testing.T) {
 	}{
 		{"", "empty"},
 		{
-			func() string { return b64(genNonce(exp, nil)[:48]) }(),
+			func() string { return b64(genNonce(testSecret, exp)[:48]) }(),
 			"short",
 		},
 		{
 			func() string {
-				n := genNonce(exp, nil)
+				n := genNonce(testSecret, exp)
 				n[0] = 2
 				return b64(n)
 			}(),
@@ -69,13 +50,13 @@ func TestCheckNonce(t *testing.T) {
 		},
 		{
 			func() string {
-				n := genNonce(exp, []byte{1})
+				n := genNonce([]byte{1}, exp)
 				return b64(n)
 			}(),
 			"invalid signature",
 		},
 		{
-			func() string { return b64(genNonce(time.Now().Add(-time.Second), nil)) }(),
+			func() string { return b64(genNonce(testSecret, time.Now().Add(-time.Second))) }(),
 			"expired",
 		},
 	} {

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = ".;pb";
+
+message Nonce {
+    google.protobuf.Timestamp expiry = 1;
+    bytes random = 2;
+}
+
+message RefreshToken {
+    bytes key = 1;
+    uint64 version = 2;
+}

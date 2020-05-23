@@ -5,11 +5,28 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/flynn/hubauth/pkg/kmssign"
+	"github.com/flynn/hubauth/pkg/kmssign/kmssim"
+	"github.com/flynn/hubauth/pkg/signpb"
+	"golang.org/x/net/context"
 )
 
+func newKey() signpb.Key {
+	c := kmssim.NewClient([]string{"1"})
+	k, err := kmssign.NewKey(context.Background(), c, "1")
+	if err != nil {
+		panic(err)
+	}
+	return k
+}
+
 func TestRedirect(t *testing.T) {
-	s := New("client1", "clientSecret", "https://localhost:8080", []byte{0}).(*service)
-	res := s.Redirect()
+	s := New("client1", "clientSecret", "https://localhost:8080", newKey()).(*service)
+	res, err := s.Redirect(context.Background())
+	if err != nil {
+		t.Fatal("unexpected error generating redirect:", err)
+	}
 	u, err := url.Parse(res.URL)
 	if err != nil {
 		t.Fatal("unexpected error parsing URL:", err)
@@ -25,38 +42,32 @@ func TestRedirect(t *testing.T) {
 	}
 }
 
-var testSecret = []byte{0}
-
 func TestCheckNonce(t *testing.T) {
-	s := &service{secret: []byte{0}}
+	s := &service{sigKey: newKey()}
 	exp := time.Now().Add(time.Minute)
-	b64 := base64.URLEncoding.EncodeToString
+	gen := func(k signpb.Key, exp time.Time) string {
+		b, err := genNonce(context.Background(), k, exp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.URLEncoding.EncodeToString(b)
+	}
+
 	for _, test := range []struct {
 		n    string
 		desc string
 	}{
 		{"", "empty"},
 		{
-			func() string { return b64(genNonce(testSecret, exp)[:48]) }(),
+			func() string { return gen(s.sigKey, exp)[:48] }(),
 			"short",
 		},
 		{
-			func() string {
-				n := genNonce(testSecret, exp)
-				n[0] = 2
-				return b64(n)
-			}(),
-			"wrong version",
+			func() string { return gen(newKey(), exp) }(),
+			"wrong key",
 		},
 		{
-			func() string {
-				n := genNonce([]byte{1}, exp)
-				return b64(n)
-			}(),
-			"invalid signature",
-		},
-		{
-			func() string { return b64(genNonce(testSecret, time.Now().Add(-time.Second))) }(),
+			func() string { return gen(s.sigKey, time.Now().Add(-time.Second)) }(),
 			"expired",
 		},
 	} {

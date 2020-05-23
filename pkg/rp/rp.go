@@ -8,7 +8,7 @@ import (
 )
 
 type AuthService interface {
-	Redirect() *AuthCodeRedirect
+	Redirect(context.Context) (*AuthCodeRedirect, error)
 	Exchange(context.Context, *RedirectResult) (*Token, error)
 }
 

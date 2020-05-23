@@ -4,6 +4,11 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = ".;pb";
 
+message SignedData {
+    bytes data = 1;
+    bytes signature = 2;
+}
+
 message Nonce {
     google.protobuf.Timestamp expiry = 1;
     bytes random = 2;

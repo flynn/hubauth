@@ -31,6 +31,7 @@ type ExchangeCodeRequest struct {
 type ExchangeCodeResponse struct {
 	RefreshToken string
 	AuthToken    string
+	Nonce        string
 }
 
 type RefreshTokenRequest struct {

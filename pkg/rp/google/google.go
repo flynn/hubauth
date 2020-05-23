@@ -2,9 +2,7 @@ package google
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -13,13 +11,13 @@ import (
 
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
+	"github.com/flynn/hubauth/pkg/signpb"
 	"github.com/golang/protobuf/ptypes"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/protobuf/proto"
 )
 
-func New(clientID, clientSecret, redirectURL string, internalSecret []byte) rp.AuthService {
+func New(clientID, clientSecret, redirectURL string, sigKey signpb.Key) rp.AuthService {
 	return &service{
 		conf: &oauth2.Config{
 			ClientID:     clientID,
@@ -28,23 +26,27 @@ func New(clientID, clientSecret, redirectURL string, internalSecret []byte) rp.A
 			RedirectURL:  redirectURL,
 			Scopes:       []string{"openid", "profile", "email"},
 		},
-		secret: internalSecret,
+		sigKey: sigKey,
 	}
 }
 
 type service struct {
 	conf   *oauth2.Config
-	secret []byte
+	sigKey signpb.Key
 }
 
 const nonceExpiry = 5 * time.Minute
 const nonceRandom = 8
 
-func (s *service) newNonce() string {
-	return base64.URLEncoding.EncodeToString(genNonce(s.secret, time.Now().Add(nonceExpiry)))
+func (s *service) newNonce(ctx context.Context) (string, error) {
+	nonce, err := genNonce(ctx, s.sigKey, time.Now().Add(nonceExpiry))
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(nonce), nil
 }
 
-func genNonce(secret []byte, expiry time.Time) []byte {
+func genNonce(ctx context.Context, k signpb.Key, expiry time.Time) ([]byte, error) {
 	exp, err := ptypes.TimestampProto(expiry)
 	if err != nil {
 		// this should be unreachable
@@ -58,14 +60,8 @@ func genNonce(secret []byte, expiry time.Time) []byte {
 		// this should be unreachable
 		panic(err)
 	}
-	msg, err := proto.Marshal(n)
-	if err != nil {
-		// this should be unreachable
-		panic(err)
-	}
-	h := hmac.New(sha256.New, secret)
-	h.Write(msg)
-	return h.Sum(msg)
+
+	return signpb.SignMarshal(ctx, k, n)
 }
 
 func (s *service) checkNonce(n string) bool {
@@ -74,19 +70,8 @@ func (s *service) checkNonce(n string) bool {
 		return false
 	}
 
-	if len(msg) < sha256.Size+1 {
-		return false
-	}
-
-	h := hmac.New(sha256.New, s.secret)
-	h.Write(msg[:len(msg)-sha256.Size])
-	if !hmac.Equal(h.Sum(nil), msg[len(msg)-sha256.Size:]) {
-		// signature mismatch
-		return false
-	}
-
 	nonce := &pb.Nonce{}
-	if err := proto.Unmarshal(msg[:len(msg)-sha256.Size], nonce); err != nil {
+	if err := signpb.VerifyUnmarshal(s.sigKey, msg, nonce); err != nil {
 		return false
 	}
 
@@ -102,13 +87,16 @@ func (s *service) checkNonce(n string) bool {
 	return exp.After(time.Now())
 }
 
-func (s *service) Redirect() *rp.AuthCodeRedirect {
-	nonce := s.newNonce()
+func (s *service) Redirect(ctx context.Context) (*rp.AuthCodeRedirect, error) {
+	nonce, err := s.newNonce(ctx)
+	if err != nil {
+		return nil, err
+	}
 	u := s.conf.AuthCodeURL(nonce, oauth2.SetAuthURLParam("nonce", nonce), oauth2.SetAuthURLParam("hd", "*"))
 	return &rp.AuthCodeRedirect{
 		URL:   u,
 		State: nonce,
-	}
+	}, nil
 }
 
 const codeInvalid = "invalid_request"

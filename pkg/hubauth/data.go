@@ -12,6 +12,7 @@ var (
 
 	ErrIncorrectCodeSecret         = errors.New("hubauth: incorrect secret for code")
 	ErrRefreshTokenVersionMismatch = errors.New("hubauth: provided refresh token has the wrong version")
+	ErrClientIDMismatch            = errors.New("hubauth: client ID does match")
 )
 
 type DataStore interface {
@@ -30,11 +31,12 @@ type ClientStore interface {
 }
 
 type Client struct {
-	ID           string
-	RedirectURIs []string
-	Policies     []*GoogleUserPolicy
-	CreateTime   time.Time
-	UpdateTime   time.Time
+	ID                 string
+	RedirectURIs       []string
+	RefreshTokenExpiry time.Duration
+	Policies           []*GoogleUserPolicy
+	CreateTime         time.Time
+	UpdateTime         time.Time
 }
 
 type GoogleUserPolicy struct {
@@ -81,7 +83,7 @@ type Code struct {
 type RefreshTokenStore interface {
 	GetRefreshToken(ctx context.Context, id string) (*RefreshToken, error)
 	CreateRefreshToken(ctx context.Context, token *RefreshToken) (string, error)
-	RenewRefreshToken(ctx context.Context, id string, version int) (*RefreshToken, error)
+	RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*RefreshToken, error)
 	DeleteRefreshToken(ctx context.Context, id string) error
 	DeleteRefreshTokensWithCode(ctx context.Context, codeID string) ([]string, error)
 	DeleteExpiredRefreshTokens(ctx context.Context) ([]string, error)

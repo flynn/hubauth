@@ -9,13 +9,19 @@ import (
 	"time"
 
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
+	"github.com/flynn/hubauth/pkg/signpb"
+	"github.com/golang/protobuf/ptypes"
 	"golang.org/x/exp/errors/fmt"
 )
 
 type IdPService struct {
 	db hubauth.DataStore
 	rp rp.AuthService
+
+	refreshKey signpb.Key
+	accessKey  signpb.Key
 }
 
 func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeRequest) (*hubauth.AuthorizeRedirect, error) {
@@ -48,7 +54,10 @@ func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 		// TODO: redirect with tagged error
 		return nil, fmt.Errorf("idp: missing PKCE code challenge")
 	}
-	res := s.rp.Redirect()
+	res, err := s.rp.Redirect(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("idp: error generating RP redirect: %w", err)
+	}
 	return &hubauth.AuthorizeRedirect{
 		URL:   res.URL,
 		State: res.State,
@@ -92,7 +101,7 @@ func (s *IdPService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 	return &hubauth.AuthorizeRedirect{URL: u.String()}, nil
 }
 
-func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.ExchangeCodeResponse, error) {
+func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
 	deleted, err := s.db.DeleteRefreshTokensWithCode(ctx, req.Code)
 	if err != nil {
 		return nil, fmt.Errorf("idp: error deleting refresh tokens with code: %q", err)
@@ -126,16 +135,83 @@ func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if code.PKCEChallenge != challenge {
 		return nil, fmt.Errorf("idp: PKCE challenge mismatch")
 	}
-	// generate refresh token
-	// issue auth token
-	// return nonce
-	return nil, nil
+
+	client, err := s.db.GetClient(ctx, code.ClientID)
+	if err != nil {
+		return nil, fmt.Errorf("idp: error getting client %s: %w", code.ClientID, err)
+	}
+
+	rt := &hubauth.RefreshToken{
+		ClientID:   req.ClientID,
+		UserID:     code.UserID,
+		CodeID:     splitCode[0],
+		ExpiryTime: time.Now().Add(client.RefreshTokenExpiry),
+	}
+	rt.ID, err = s.db.CreateRefreshToken(ctx, rt)
+	if err != nil {
+		return nil, fmt.Errorf("idp: error creating refresh token for code %s: %w", splitCode[0], err)
+	}
+
+	refreshToken, err := s.signRefreshToken(ctx, rt.ID, rt.Version)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: log refresh token
+
+	accessToken, _, err := s.signAccessToken(ctx, req.ClientID, code.UserID)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: log access token ID
+
+	return &hubauth.AccessToken{
+		RefreshToken: refreshToken,
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		Nonce:        code.Nonce,
+		ExpiresIn:    int(accessTokenDuration / time.Second),
+	}, nil
 }
 
-func (s *IdPService) RefreshToken(ctx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.RefreshTokenResponse, error) {
-	// lookup and issue new refresh token
-	// issue auth token
-	return nil, nil
+func (s *IdPService) RefreshToken(ctx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.AccessToken, error) {
+	tokenMsg, err := base64.URLEncoding.DecodeString(req.RefreshToken)
+	if err != nil {
+		// TODO: 400
+		return nil, fmt.Errorf("idp: error decoding refresh token: %w", err)
+	}
+	oldToken := &pb.RefreshToken{}
+	if err := signpb.VerifyUnmarshal(s.refreshKey, tokenMsg, oldToken); err != nil {
+		// TODO: 400
+		return nil, fmt.Errorf("idp: error verifying refresh token signature: %w", err)
+	}
+
+	rtKey := strings.TrimRight(base64.URLEncoding.EncodeToString(oldToken.Key), "=")
+	newToken, err := s.db.RenewRefreshToken(ctx, req.ClientID, rtKey, int(oldToken.Version))
+	if err != nil {
+		if err == hubauth.ErrNotFound || err == hubauth.ErrRefreshTokenVersionMismatch || err == hubauth.ErrClientIDMismatch || err == hubauth.ErrExpired {
+			// TODO: 400
+		}
+		return nil, fmt.Errorf("idp: error renewing refresh token: %w", err)
+	}
+
+	refreshToken, err := s.signRefreshToken(ctx, newToken.ID, newToken.Version)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: log refresh token
+
+	accessToken, _, err := s.signAccessToken(ctx, newToken.ClientID, newToken.UserID)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: log access token ID
+
+	return &hubauth.AccessToken{
+		RefreshToken: refreshToken,
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(accessTokenDuration / time.Second),
+	}, nil
 }
 
 func (s *IdPService) checkUser(ctx context.Context, client *hubauth.Client, userID string) error {
@@ -160,4 +236,47 @@ outer:
 		return hubauth.ErrUnauthorizedUser
 	}
 	return nil
+}
+
+func (s *IdPService) signRefreshToken(ctx context.Context, key string, version int) (string, error) {
+	if m := len(key) % 4; m != 0 {
+		key += strings.Repeat("=", 4-m)
+	}
+	keyBytes, err := base64.URLEncoding.DecodeString(key)
+
+	if err != nil {
+		return "", fmt.Errorf("idp: error decoding refresh token key %q: %w", key, err)
+	}
+
+	msg := &pb.RefreshToken{
+		Key:     keyBytes,
+		Version: uint64(version),
+	}
+	tokenBytes, err := signpb.SignMarshal(ctx, s.refreshKey, msg)
+	if err != nil {
+		return "", fmt.Errorf("idp: error signing refresh token: %w", err)
+	}
+	return base64.URLEncoding.EncodeToString(tokenBytes), nil
+}
+
+const accessTokenDuration = 5 * time.Minute
+
+func (s *IdPService) signAccessToken(ctx context.Context, clientID, user string) (token string, id string, err error) {
+	exp, err := ptypes.TimestampProto(time.Now().Add(accessTokenDuration))
+	if err != nil {
+		// this should be unreachable
+		panic(err)
+	}
+	msg := &pb.AccessToken{
+		ClientId:   clientID,
+		User:       user,
+		ExpireTime: exp,
+	}
+	tokenBytes, err := signpb.SignMarshal(ctx, s.accessKey, msg)
+	if err != nil {
+		return "", "", fmt.Errorf("idp: error signing access token: %w", err)
+	}
+	idBytes := sha256.Sum256(tokenBytes)
+
+	return base64.URLEncoding.EncodeToString(tokenBytes), base64.URLEncoding.EncodeToString(idBytes[:]), nil
 }

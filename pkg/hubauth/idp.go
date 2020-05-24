@@ -22,31 +22,28 @@ type AuthorizeRedirect struct {
 }
 
 type ExchangeCodeRequest struct {
-	ClientID     string
-	RedirectURI  string
-	Code         string
-	CodeVerifier string
+	ClientID     string `json:"client_id"`
+	RedirectURI  string `json:"redirect_uri"`
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
 }
 
-type ExchangeCodeResponse struct {
-	RefreshToken string
-	AuthToken    string
-	Nonce        string
+type AccessToken struct {
+	RefreshToken string `json:"refresh_token"`
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	Nonce        string `json:"nonce,omitempty"`
 }
 
 type RefreshTokenRequest struct {
-	ClientID     string
-	RefreshToken string
-}
-
-type RefreshTokenResponse struct {
-	RefreshToken string
-	AuthToken    string
+	ClientID     string `json:"client_id"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 type IdPService interface {
 	AuthorizeUserRedirect(ctx context.Context, req *AuthorizeRequest) (*AuthorizeRedirect, error)
 	AuthorizeCodeRedirect(ctx context.Context, req *AuthorizeRequest) (*AuthorizeRedirect, error)
-	ExchangeCode(ctx context.Context, req *ExchangeCodeRequest) (*ExchangeCodeResponse, error)
-	RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*RefreshTokenResponse, error)
+	ExchangeCode(ctx context.Context, req *ExchangeCodeRequest) (*AccessToken, error)
+	RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*AccessToken, error)
 }

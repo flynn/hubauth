@@ -53,8 +53,8 @@ func genNonce(ctx context.Context, k signpb.Key, expiry time.Time) ([]byte, erro
 		panic(err)
 	}
 	n := &pb.Nonce{
-		Expiry: exp,
-		Random: make([]byte, nonceRandom),
+		ExpireTime: exp,
+		Random:     make([]byte, nonceRandom),
 	}
 	if _, err := io.ReadFull(rand.Reader, n.Random); err != nil {
 		// this should be unreachable
@@ -80,7 +80,7 @@ func (s *service) checkNonce(n string) bool {
 		return false
 	}
 
-	exp, err := ptypes.Timestamp(nonce.Expiry)
+	exp, err := ptypes.Timestamp(nonce.ExpireTime)
 	if err != nil {
 		return false
 	}

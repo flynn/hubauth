@@ -10,8 +10,8 @@ message SignedData {
 }
 
 message Nonce {
-    google.protobuf.Timestamp expiry = 1;
-    bytes random = 2;
+    bytes random = 1;
+    google.protobuf.Timestamp expire_time = 2;
 }
 
 message RefreshToken {
@@ -19,8 +19,9 @@ message RefreshToken {
     uint64 version = 2;
 }
 
-message AuthToken {
-    google.protobuf.Timestamp expiry = 1;
-    bytes key = 2;
+message AccessToken {
+    string issuer = 1;
+    string client_id = 2;
     string user = 3;
+    google.protobuf.Timestamp expire_time = 4;
 }

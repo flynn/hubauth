@@ -17,19 +17,21 @@ func buildClient(c *hubauth.Client) *client {
 		policies[i] = buildGoogleUserPolicy(p)
 	}
 	return &client{
-		RedirectURIs: c.RedirectURIs,
-		Policies:     policies,
-		CreateTime:   now,
-		UpdateTime:   now,
+		RedirectURIs:       c.RedirectURIs,
+		RefreshTokenExpiry: c.RefreshTokenExpiry,
+		Policies:           policies,
+		CreateTime:         now,
+		UpdateTime:         now,
 	}
 }
 
 type client struct {
-	ID           *datastore.Key `datastore:"__key__"`
-	RedirectURIs []string
-	Policies     []googleUserPolicy `datastore:",flatten"`
-	CreateTime   time.Time
-	UpdateTime   time.Time
+	ID                 *datastore.Key `datastore:"__key__"`
+	RedirectURIs       []string
+	RefreshTokenExpiry time.Duration
+	Policies           []googleUserPolicy `datastore:",flatten"`
+	CreateTime         time.Time
+	UpdateTime         time.Time
 }
 
 func buildGoogleUserPolicy(p *hubauth.GoogleUserPolicy) googleUserPolicy {
@@ -56,11 +58,12 @@ func (c *client) Export() *hubauth.Client {
 		}
 	}
 	return &hubauth.Client{
-		ID:           c.ID.Encode(),
-		RedirectURIs: c.RedirectURIs,
-		Policies:     policies,
-		CreateTime:   c.CreateTime,
-		UpdateTime:   c.UpdateTime,
+		ID:                 c.ID.Encode(),
+		RedirectURIs:       c.RedirectURIs,
+		RefreshTokenExpiry: c.RefreshTokenExpiry,
+		Policies:           policies,
+		CreateTime:         c.CreateTime,
+		UpdateTime:         c.UpdateTime,
 	}
 }
 

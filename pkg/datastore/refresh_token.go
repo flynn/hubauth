@@ -93,13 +93,14 @@ func (s *Service) CreateRefreshToken(ctx context.Context, token *hubauth.Refresh
 	return data.Key.Encode(), nil
 }
 
-func (s *Service) RenewRefreshToken(ctx context.Context, id string, version int) (*hubauth.RefreshToken, error) {
+func (s *Service) RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*hubauth.RefreshToken, error) {
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return nil, err
 	}
 	t := &refreshToken{}
 	versionMismatch := false
+	clientMismatch := false
 	_, err = s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
 		if err := tx.Get(k, t); err != nil {
 			if err == datastore.ErrNoSuchEntity {
@@ -111,11 +112,15 @@ func (s *Service) RenewRefreshToken(ctx context.Context, id string, version int)
 		if now.After(t.ExpiryTime) {
 			return hubauth.ErrExpired
 		}
-		if t.Version != version {
+		if clientID != t.Key.Parent.Encode() {
+			clientMismatch = true
+		} else if t.Version != version {
+			versionMismatch = true
+		}
+		if clientMismatch || versionMismatch {
 			if err := tx.Delete(k); err != nil {
 				return err
 			}
-			versionMismatch = true
 			return nil
 		}
 		t.Version++
@@ -123,6 +128,9 @@ func (s *Service) RenewRefreshToken(ctx context.Context, id string, version int)
 		_, err = tx.Put(k, t)
 		return err
 	})
+	if clientMismatch {
+		err = hubauth.ErrClientIDMismatch
+	}
 	if versionMismatch {
 		err = hubauth.ErrRefreshTokenVersionMismatch
 	}

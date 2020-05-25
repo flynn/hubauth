@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
 	"github.com/flynn/hubauth/pkg/signpb"
@@ -103,23 +104,23 @@ const codeInvalid = "invalid_request"
 
 func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token, error) {
 	if e := r.Params.Get("error"); e != "" {
-		return nil, rp.Error{Message: r.Params.Get("error_description"), Code: e}
+		return nil, hubauth.OAuthError{Description: r.Params.Get("error_description"), Code: e}
 	}
 
 	nonce := r.Params.Get("state")
 	if nonce == "" {
-		return nil, rp.Error{Message: "missing state", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "missing state", Code: codeInvalid}
 	}
 	if r.State != nonce {
-		return nil, rp.Error{Message: "state mismatch", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "state mismatch", Code: codeInvalid}
 	}
 	if !s.checkNonce(nonce) {
-		return nil, rp.Error{Message: "invalid state", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "invalid state", Code: codeInvalid}
 	}
 
 	code := r.Params.Get("code")
 	if code == "" {
-		return nil, rp.Error{Message: "missing code", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "missing code", Code: codeInvalid}
 	}
 
 	t, err := s.conf.Exchange(ctx, code)
@@ -129,27 +130,27 @@ func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token
 
 	id, ok := t.Extra("id_token").(string)
 	if !ok || id == "" {
-		return nil, rp.Error{Message: "missing id_token", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "missing id_token", Code: codeInvalid}
 	}
 	splitJWT := strings.SplitN(id, ".", 3)
 	if len(splitJWT) < 3 {
-		return nil, rp.Error{Message: "invalid id_token", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "invalid id_token", Code: codeInvalid}
 	}
 	// no need to check the signature, as we just got it over TLS from Google
 	idJSON, err := base64.URLEncoding.DecodeString(splitJWT[1])
 	if err != nil {
-		return nil, rp.Error{Message: "invalid id_token encoding", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "invalid id_token encoding", Code: codeInvalid}
 	}
 
 	var idt idToken
 	if err := json.Unmarshal(idJSON, &idt); err != nil {
-		return nil, rp.Error{Message: "invalid id_token json", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "invalid id_token json", Code: codeInvalid}
 	}
 	if idt.Nonce != nonce {
-		return nil, rp.Error{Message: "id_token missing nonce", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "id_token missing nonce", Code: codeInvalid}
 	}
 	if idt.EmailVerified != "true" || idt.Email == "" || idt.Sub == "" {
-		return nil, rp.Error{Message: "id_token missing user", Code: codeInvalid}
+		return nil, hubauth.OAuthError{Description: "id_token missing user", Code: codeInvalid}
 	}
 
 	return &rp.Token{

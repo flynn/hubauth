@@ -3,6 +3,8 @@ package hubauth
 import (
 	"context"
 	"errors"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -73,6 +75,7 @@ type Code struct {
 	Secret        string
 	ClientID      string
 	UserID        string
+	UserEmail     string
 	RedirectURI   string
 	Nonce         string
 	PKCEChallenge string
@@ -90,14 +93,16 @@ type RefreshTokenStore interface {
 }
 
 type RefreshToken struct {
-	ID         string
-	ClientID   string
-	UserID     string
-	CodeID     string
-	Version    int
-	CreateTime time.Time
-	RenewTime  time.Time
-	ExpiryTime time.Time
+	ID          string
+	ClientID    string
+	UserID      string
+	UserEmail   string
+	RedirectURI string
+	CodeID      string
+	Version     int
+	CreateTime  time.Time
+	RenewTime   time.Time
+	ExpiryTime  time.Time
 }
 
 type SetCachedGroupResult struct {
@@ -127,4 +132,53 @@ type CachedGroupMember struct {
 	UserID string
 	Email  string
 	Etag   string
+}
+
+type OAuthError struct {
+	Code        string `json:"error"`
+	Description string `json:"error_description"`
+}
+
+func (e OAuthError) Error() string {
+	if e.Description == "" {
+		return "oauth error: " + e.Code
+	}
+	return e.Description
+}
+
+func (e OAuthError) RedirectURI(baseURL, state string, fragment bool) string {
+	return RedirectURI(baseURL, fragment, map[string]string{
+		"state":             state,
+		"error":             e.Code,
+		"error_description": e.Description,
+	})
+}
+
+func RedirectURI(base string, fragment bool, data map[string]string) string {
+	u, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+
+	var params url.Values
+	if fragment {
+		params = make(url.Values, 3)
+	} else {
+		params = u.Query()
+	}
+
+	for k, v := range data {
+		params.Set(k, v)
+	}
+
+	if fragment {
+		if u.Fragment != "" && !strings.HasSuffix(u.Fragment, "&") {
+			u.Fragment += "&"
+		}
+		u.Fragment += params.Encode()
+	} else {
+		u.RawQuery = params.Encode()
+	}
+
+	return u.String()
 }

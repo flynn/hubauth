@@ -19,7 +19,8 @@ func TestRefreshTokenCRUD(t *testing.T) {
 	rt := &hubauth.RefreshToken{
 		ClientID:   clientID.Encode(),
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
-		UserID:     "foo@example.com",
+		UserID:     "123",
+		UserEmail:  "foo@example.com",
 		ExpiryTime: time.Now().Add(time.Hour).Truncate(time.Millisecond),
 	}
 	id, err := s.CreateRefreshToken(ctx, rt)
@@ -62,7 +63,8 @@ func TestRefreshTokenRenewExpired(t *testing.T) {
 	rt := &hubauth.RefreshToken{
 		ClientID:   clientID.Encode(),
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
-		UserID:     "foo@example.com",
+		UserID:     "123",
+		UserEmail:  "foo@example.com",
 		ExpiryTime: time.Now().Add(-time.Minute),
 	}
 	id, err := s.CreateRefreshToken(ctx, rt)
@@ -104,7 +106,8 @@ func TestRefreshTokenRenewWrongClientID(t *testing.T) {
 	rt := &hubauth.RefreshToken{
 		ClientID:   clientID.Encode(),
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
-		UserID:     "foo@example.com",
+		UserID:     "123",
+		UserEmail:  "foo@example.com",
 		ExpiryTime: time.Now().Add(time.Minute),
 	}
 	id, err := s.CreateRefreshToken(ctx, rt)
@@ -125,7 +128,8 @@ func TestRefreshTokenDeleteExpired(t *testing.T) {
 	rt := &hubauth.RefreshToken{
 		ClientID:   clientID.Encode(),
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
-		UserID:     "foo@example.com",
+		UserID:     "123",
+		UserEmail:  "foo@example.com",
 		ExpiryTime: time.Now().Add(time.Hour).Truncate(time.Millisecond),
 	}
 
@@ -178,7 +182,8 @@ func TestRefreshTokenDeleteWithCode(t *testing.T) {
 	rt := &hubauth.RefreshToken{
 		ClientID:   clientID.Encode(),
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
-		UserID:     "foo@example.com",
+		UserID:     "123",
+		UserEmail:  "foo@example.com",
 		ExpiryTime: time.Now().Add(time.Hour).Truncate(time.Millisecond),
 	}
 	deleteCode := rt.CodeID

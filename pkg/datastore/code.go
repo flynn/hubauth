@@ -19,6 +19,7 @@ func buildCode(c *hubauth.Code) (*code, error) {
 		Key:           datastore.NameKey(kindCode, newRandomID(), parentKey),
 		Secret:        newRandomID(),
 		UserID:        c.UserID,
+		UserEmail:     c.UserEmail,
 		RedirectURI:   c.RedirectURI,
 		Nonce:         c.Nonce,
 		PKCEChallenge: c.PKCEChallenge,
@@ -31,6 +32,7 @@ type code struct {
 	Key           *datastore.Key `datastore:"__key__"`
 	Secret        string
 	UserID        string
+	UserEmail     string
 	RedirectURI   string
 	Nonce         string `datastore:",noindex"`
 	PKCEChallenge string `datastore:",noindex"`
@@ -44,6 +46,7 @@ func (c *code) Export() *hubauth.Code {
 		Secret:        c.Secret,
 		ClientID:      c.Key.Parent.Encode(),
 		UserID:        c.UserID,
+		UserEmail:     c.UserEmail,
 		RedirectURI:   c.RedirectURI,
 		Nonce:         c.Nonce,
 		PKCEChallenge: c.PKCEChallenge,

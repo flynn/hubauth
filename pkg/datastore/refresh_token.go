@@ -20,36 +20,42 @@ func buildRefreshToken(t *hubauth.RefreshToken) (*refreshToken, error) {
 	}
 	now := time.Now()
 	return &refreshToken{
-		Key:        datastore.NameKey(kindRefreshToken, newRandomID(), parentKey),
-		UserID:     t.UserID,
-		Code:       codeKey,
-		Version:    0,
-		CreateTime: now,
-		RenewTime:  now,
-		ExpiryTime: t.ExpiryTime,
+		Key:         datastore.NameKey(kindRefreshToken, newRandomID(), parentKey),
+		UserID:      t.UserID,
+		UserEmail:   t.UserEmail,
+		RedirectURI: t.RedirectURI,
+		Code:        codeKey,
+		Version:     0,
+		CreateTime:  now,
+		RenewTime:   now,
+		ExpiryTime:  t.ExpiryTime,
 	}, nil
 }
 
 type refreshToken struct {
-	Key        *datastore.Key `datastore:"__key__"`
-	UserID     string
-	Code       *datastore.Key
-	Version    int `datastore:",noindex"`
-	CreateTime time.Time
-	RenewTime  time.Time
-	ExpiryTime time.Time
+	Key         *datastore.Key `datastore:"__key__"`
+	UserID      string
+	UserEmail   string
+	RedirectURI string
+	Code        *datastore.Key
+	Version     int `datastore:",noindex"`
+	CreateTime  time.Time
+	RenewTime   time.Time
+	ExpiryTime  time.Time
 }
 
 func (t *refreshToken) Export() *hubauth.RefreshToken {
 	return &hubauth.RefreshToken{
-		ID:         t.Key.Encode(),
-		ClientID:   t.Key.Parent.Encode(),
-		UserID:     t.UserID,
-		CodeID:     t.Code.Encode(),
-		Version:    t.Version,
-		CreateTime: t.CreateTime,
-		RenewTime:  t.RenewTime,
-		ExpiryTime: t.ExpiryTime,
+		ID:          t.Key.Encode(),
+		ClientID:    t.Key.Parent.Encode(),
+		UserID:      t.UserID,
+		UserEmail:   t.UserEmail,
+		RedirectURI: t.RedirectURI,
+		CodeID:      t.Code.Encode(),
+		Version:     t.Version,
+		CreateTime:  t.CreateTime,
+		RenewTime:   t.RenewTime,
+		ExpiryTime:  t.ExpiryTime,
 	}
 }
 

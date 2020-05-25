@@ -20,6 +20,8 @@ func TestCodeCRD(t *testing.T) {
 		RedirectURI:   "https://example.com",
 		Nonce:         "asdf",
 		PKCEChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+		UserID:        "123",
+		UserEmail:     "test@example.com",
 		ExpiryTime:    time.Now().Add(time.Minute).Truncate(time.Millisecond),
 	}
 	id, secret, err := s.CreateCode(ctx, c)
@@ -49,6 +51,8 @@ func TestCodeVerifyAndDeleteSuccess(t *testing.T) {
 		RedirectURI:   "https://example.com",
 		Nonce:         "asdf",
 		PKCEChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+		UserID:        "123",
+		UserEmail:     "test@example.com",
 		ExpiryTime:    time.Now().Add(time.Minute).Truncate(time.Millisecond),
 	}
 	id, secret, err := s.CreateCode(ctx, c)
@@ -75,6 +79,8 @@ func TestCodeVerifyAndDeleteWrongSecret(t *testing.T) {
 		RedirectURI:   "https://example.com",
 		Nonce:         "asdf",
 		PKCEChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+		UserID:        "123",
+		UserEmail:     "test@example.com",
 		ExpiryTime:    time.Now().Add(time.Minute).Truncate(time.Millisecond),
 	}
 	id, _, err := s.CreateCode(ctx, c)
@@ -96,6 +102,8 @@ func TestCodeDeleteExpired(t *testing.T) {
 		RedirectURI:   "https://example.com",
 		Nonce:         "asdf",
 		PKCEChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+		UserID:        "123",
+		UserEmail:     "test@example.com",
 	}
 
 	c.ExpiryTime = time.Now().Add(time.Minute)

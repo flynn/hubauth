@@ -32,15 +32,3 @@ type Token struct {
 	Name    string
 	Picture string
 }
-
-type Error struct {
-	Code    string
-	Message string
-}
-
-func (e Error) Error() string {
-	if e.Message == "" {
-		return "oauth error: " + e.Code
-	}
-	return e.Message
-}

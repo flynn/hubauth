@@ -3,29 +3,36 @@ package hubauth
 import (
 	"context"
 	"errors"
+	"net/url"
 )
 
 var ErrUnauthorizedUser = errors.New("hubauth: unauthorized user")
 
-type AuthorizeRequest struct {
+type AuthorizeCodeRequest struct {
+	AuthorizeUserRequest
+	RPState string
+	Params  url.Values
+}
+
+type AuthorizeUserRequest struct {
 	ClientID      string
 	RedirectURI   string
-	State         string
+	ClientState   string
 	Nonce         string
 	CodeChallenge string
-	UserID        string
+	ResponseMode  string
 }
 
 type AuthorizeRedirect struct {
-	URL   string
-	State string
+	URL     string
+	RPState string
 }
 
 type ExchangeCodeRequest struct {
-	ClientID     string `json:"client_id"`
-	RedirectURI  string `json:"redirect_uri"`
-	Code         string `json:"code"`
-	CodeVerifier string `json:"code_verifier"`
+	ClientID     string
+	RedirectURI  string
+	Code         string
+	CodeVerifier string
 }
 
 type AccessToken struct {
@@ -34,16 +41,19 @@ type AccessToken struct {
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	Nonce        string `json:"nonce,omitempty"`
+
+	// used by HTTP layer to set Access-Control-Allow-Origin
+	RedirectURI string `json:"-"`
 }
 
 type RefreshTokenRequest struct {
-	ClientID     string `json:"client_id"`
-	RefreshToken string `json:"refresh_token"`
+	ClientID     string
+	RefreshToken string
 }
 
 type IdPService interface {
-	AuthorizeUserRedirect(ctx context.Context, req *AuthorizeRequest) (*AuthorizeRedirect, error)
-	AuthorizeCodeRedirect(ctx context.Context, req *AuthorizeRequest) (*AuthorizeRedirect, error)
+	AuthorizeUserRedirect(ctx context.Context, req *AuthorizeUserRequest) (*AuthorizeRedirect, error)
+	AuthorizeCodeRedirect(ctx context.Context, req *AuthorizeCodeRequest) (*AuthorizeRedirect, error)
 	ExchangeCode(ctx context.Context, req *ExchangeCodeRequest) (*AccessToken, error)
 	RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*AccessToken, error)
 }

@@ -22,6 +22,17 @@ message RefreshToken {
 message AccessToken {
     string issuer = 1;
     string client_id = 2;
-    string user = 3;
-    google.protobuf.Timestamp expire_time = 4;
+    string user_id = 3;
+    string user_email = 4;
+    google.protobuf.Timestamp expire_time = 5;
+}
+
+message AuthorizeCookie {
+    string rp_state = 1;
+    string client_state = 2;
+    string client_id = 3;
+    string redirect_uri = 4;
+    string nonce = 5;
+    string code_challenge = 6;
+    string response_mode = 7;
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"net/url"
 	"strings"
 	"time"
 
@@ -24,7 +23,7 @@ type IdPService struct {
 	accessKey  signpb.Key
 }
 
-func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeRequest) (*hubauth.AuthorizeRedirect, error) {
+func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeRedirect, error) {
 	client, err := s.db.GetClient(ctx, req.ClientID)
 	if err != nil {
 		// TODO: 400 error if notfound
@@ -42,7 +41,7 @@ func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 		return nil, fmt.Errorf("idp: redirect URI %q is not whitelisted for client %s", req.RedirectURI, req.ClientID)
 	}
 
-	if len(req.State) == 0 {
+	if len(req.ClientState) == 0 {
 		// TODO: redirect with tagged error
 		return nil, fmt.Errorf("idp: missing state")
 	}
@@ -54,31 +53,46 @@ func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 		// TODO: redirect with tagged error
 		return nil, fmt.Errorf("idp: missing PKCE code challenge")
 	}
+	if req.ResponseMode != "query" && req.ResponseMode != "fragment" {
+		// TODO: redirect with tagged error
+		return nil, fmt.Errorf("idp: invalid response mode %q, want query or fragment", req.ResponseMode)
+	}
 	res, err := s.rp.Redirect(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("idp: error generating RP redirect: %w", err)
 	}
 	return &hubauth.AuthorizeRedirect{
-		URL:   res.URL,
-		State: res.State,
+		URL:     res.URL,
+		RPState: res.State,
 	}, nil
 }
 
 const codeExpiry = 30 * time.Second
 
-func (s *IdPService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeRequest) (*hubauth.AuthorizeRedirect, error) {
+func (s *IdPService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeCodeRequest) (*hubauth.AuthorizeRedirect, error) {
 	client, err := s.db.GetClient(ctx, req.ClientID)
 	if err != nil {
 		// TODO: 400 error if notfound
 		return nil, fmt.Errorf("idp: error getting client %s: %w", req.ClientID, err)
 	}
-	if err := s.checkUser(ctx, client, req.UserID); err != nil {
+
+	token, err := s.rp.Exchange(ctx, &rp.RedirectResult{
+		State:  req.RPState,
+		Params: req.Params,
+	})
+	if err != nil {
+		// TODO: parse error more
+		return nil, fmt.Errorf("idp: error from RP: %w", err)
+	}
+
+	if err := s.checkUser(ctx, client, token.UserID); err != nil {
 		// TODO: redirect with tagged error if unauthorized
 		return nil, err
 	}
 	codeData := &hubauth.Code{
 		ClientID:      req.ClientID,
-		UserID:        req.UserID,
+		UserID:        token.UserID,
+		UserEmail:     token.Email,
 		RedirectURI:   req.RedirectURI,
 		Nonce:         req.Nonce,
 		PKCEChallenge: req.CodeChallenge,
@@ -89,16 +103,15 @@ func (s *IdPService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		return nil, fmt.Errorf("idp: error creating code: %w", err)
 	}
 
-	u, err := url.Parse(req.RedirectURI)
-	if err != nil {
-		return nil, fmt.Errorf("idp: error parsing redirect URI %q: %w", req.RedirectURI, err)
+	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == "fragment", map[string]string{
+		"code":  codeID + ":" + codeSecret,
+		"state": req.ClientState,
+	})
+	if dest == "" {
+		return nil, fmt.Errorf("idp: error parsing redirect URI %q", req.RedirectURI)
 	}
-	q := u.Query()
-	q.Set("code", codeID+":"+codeSecret)
-	q.Set("state", req.State)
-	u.RawQuery = q.Encode()
 
-	return &hubauth.AuthorizeRedirect{URL: u.String()}, nil
+	return &hubauth.AuthorizeRedirect{URL: dest}, nil
 }
 
 func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
@@ -142,10 +155,12 @@ func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	}
 
 	rt := &hubauth.RefreshToken{
-		ClientID:   req.ClientID,
-		UserID:     code.UserID,
-		CodeID:     splitCode[0],
-		ExpiryTime: time.Now().Add(client.RefreshTokenExpiry),
+		ClientID:    req.ClientID,
+		UserID:      code.UserID,
+		UserEmail:   code.UserEmail,
+		RedirectURI: req.RedirectURI,
+		CodeID:      splitCode[0],
+		ExpiryTime:  time.Now().Add(client.RefreshTokenExpiry),
 	}
 	rt.ID, err = s.db.CreateRefreshToken(ctx, rt)
 	if err != nil {
@@ -158,7 +173,7 @@ func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	}
 	// TODO: log refresh token
 
-	accessToken, _, err := s.signAccessToken(ctx, req.ClientID, code.UserID)
+	accessToken, _, err := s.signAccessToken(ctx, req.ClientID, code.UserID, code.UserEmail)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +185,7 @@ func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 		TokenType:    "Bearer",
 		Nonce:        code.Nonce,
 		ExpiresIn:    int(accessTokenDuration / time.Second),
+		RedirectURI:  req.RedirectURI,
 	}, nil
 }
 
@@ -200,7 +216,7 @@ func (s *IdPService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	}
 	// TODO: log refresh token
 
-	accessToken, _, err := s.signAccessToken(ctx, newToken.ClientID, newToken.UserID)
+	accessToken, _, err := s.signAccessToken(ctx, newToken.ClientID, newToken.UserID, newToken.UserEmail)
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +227,7 @@ func (s *IdPService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		AccessToken:  accessToken,
 		TokenType:    "Bearer",
 		ExpiresIn:    int(accessTokenDuration / time.Second),
+		RedirectURI:  newToken.RedirectURI,
 	}, nil
 }
 
@@ -261,7 +278,7 @@ func (s *IdPService) signRefreshToken(ctx context.Context, key string, version i
 
 const accessTokenDuration = 5 * time.Minute
 
-func (s *IdPService) signAccessToken(ctx context.Context, clientID, user string) (token string, id string, err error) {
+func (s *IdPService) signAccessToken(ctx context.Context, clientID, userID, userEmail string) (token string, id string, err error) {
 	exp, err := ptypes.TimestampProto(time.Now().Add(accessTokenDuration))
 	if err != nil {
 		// this should be unreachable
@@ -269,7 +286,8 @@ func (s *IdPService) signAccessToken(ctx context.Context, clientID, user string)
 	}
 	msg := &pb.AccessToken{
 		ClientId:   clientID,
-		User:       user,
+		UserId:     userID,
+		UserEmail:  userEmail,
 		ExpireTime: exp,
 	}
 	tokenBytes, err := signpb.SignMarshal(ctx, s.accessKey, msg)

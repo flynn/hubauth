@@ -53,9 +53,9 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	case req.Method == "POST" && req.URL.Path == "/token":
 		a.Token(w, req)
 	case req.Method == "GET" && req.URL.Path == "/":
-		http.Redirect(w, req, "https://flynn.io/", http.StatusTemporaryRedirect)
+		http.Redirect(w, req, "https://flynn.io/", http.StatusFound)
 	case req.Method == "GET" && req.URL.Path == "/privacy":
-		http.Redirect(w, req, "https://flynn.io/legal/privacy", http.StatusTemporaryRedirect)
+		http.Redirect(w, req, "https://flynn.io/legal/privacy", http.StatusFound)
 	case req.Method != "GET":
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	default:
@@ -136,7 +136,7 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, req, res.URL, http.StatusTemporaryRedirect)
+	http.Redirect(w, req, res.URL, http.StatusFound)
 }
 
 func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
@@ -199,7 +199,7 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 		MaxAge: -1,
 	})
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, req, res.URL, http.StatusTemporaryRedirect)
+	http.Redirect(w, req, res.URL, http.StatusFound)
 }
 
 func (a *api) Token(w http.ResponseWriter, req *http.Request) {
@@ -259,7 +259,7 @@ func handleErr(w http.ResponseWriter, req *http.Request, err error) {
 	clog.Set(req.Context(), zap.Error(err))
 	ci := hubauth.GetClientInfo(req.Context())
 	if ci != nil && ci.RedirectURI != "" {
-		http.Redirect(w, req, oe.RedirectURI(ci.RedirectURI, ci.State, ci.Fragment), http.StatusTemporaryRedirect)
+		http.Redirect(w, req, oe.RedirectURI(ci.RedirectURI, ci.State, ci.Fragment), http.StatusFound)
 		return
 	}
 	if oe.Code == "server_error" {

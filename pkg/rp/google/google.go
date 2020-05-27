@@ -9,11 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
 	"github.com/flynn/hubauth/pkg/signpb"
 	"github.com/golang/protobuf/ptypes"
+	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -132,11 +134,15 @@ func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token
 	if !ok || id == "" {
 		return nil, hubauth.OAuthError{Description: "missing id_token", Code: codeInvalid}
 	}
+	clog.Set(ctx, zap.String("google_id_token", id))
 	splitJWT := strings.SplitN(id, ".", 3)
 	if len(splitJWT) < 3 {
 		return nil, hubauth.OAuthError{Description: "invalid id_token", Code: codeInvalid}
 	}
 	// no need to check the signature, as we just got it over TLS from Google
+	if m := len(splitJWT[1]) % 4; m != 0 {
+		splitJWT[1] += strings.Repeat("=", 4-m)
+	}
 	idJSON, err := base64.URLEncoding.DecodeString(splitJWT[1])
 	if err != nil {
 		return nil, hubauth.OAuthError{Description: "invalid id_token encoding", Code: codeInvalid}

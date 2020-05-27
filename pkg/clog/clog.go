@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var Logger = zap.L()
+var Logger, _ = zap.NewProduction()
 
 type ctxKey struct{}
 

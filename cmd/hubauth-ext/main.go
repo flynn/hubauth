@@ -29,6 +29,7 @@ func main() {
 		log.Fatal(err)
 	}
 	trace.RegisterExporter(exporter)
+	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
 	ctx := context.Background()
 	dsClient, err := google_datastore.NewClient(ctx, os.Getenv("PROJECT_ID"))

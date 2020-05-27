@@ -168,8 +168,22 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 }
 
 func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
-	deleted, err := s.db.DeleteRefreshTokensWithCode(ctx, req.Code)
+	splitCode := strings.SplitN(req.Code, ":", 2)
+	if len(splitCode) != 2 {
+		return nil, &hubauth.OAuthError{
+			Code:        "access_denied",
+			Description: "invalid code",
+		}
+	}
+
+	deleted, err := s.db.DeleteRefreshTokensWithCode(ctx, splitCode[0])
 	if err != nil {
+		if errors.Is(err, hubauth.ErrNotFound) {
+			return nil, &hubauth.OAuthError{
+				Code:        "access_denied",
+				Description: "invalid code",
+			}
+		}
 		return nil, fmt.Errorf("idp: error deleting refresh tokens with code: %q", err)
 	}
 	if len(deleted) > 0 {
@@ -177,14 +191,6 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 		return nil, &hubauth.OAuthError{
 			Code:        "access_denied",
 			Description: "code already exchanged",
-		}
-	}
-
-	splitCode := strings.SplitN(req.Code, ":", 2)
-	if len(splitCode) != 2 {
-		return nil, &hubauth.OAuthError{
-			Code:        "access_denied",
-			Description: "invalid code",
 		}
 	}
 

@@ -44,7 +44,7 @@ func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 				Description: "unknown client",
 			}
 		}
-		return nil, fmt.Errorf("idp: error getting client: %w", req.ClientID, err)
+		return nil, fmt.Errorf("idp: error getting client %q: %w", req.ClientID, err)
 	}
 	foundRedirectURI := false
 	for _, u := range client.RedirectURIs {

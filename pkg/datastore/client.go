@@ -70,10 +70,10 @@ func (c *client) Export() *hubauth.Client {
 func clientKey(id string) (*datastore.Key, error) {
 	k, err := datastore.DecodeKey(id)
 	if err != nil {
-		return nil, err
+		return nil, hubauth.ErrNotFound
 	}
 	if k.Kind != kindClient {
-		return nil, fmt.Errorf("datastore: client key kind is unexpected: %q", k.Kind)
+		return nil, hubauth.ErrNotFound
 	}
 	return k, nil
 }

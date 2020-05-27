@@ -58,13 +58,13 @@ func (c *code) Export() *hubauth.Code {
 func codeKey(code string) (*datastore.Key, error) {
 	k, err := datastore.DecodeKey(code)
 	if err != nil {
-		return nil, err
+		return nil, hubauth.ErrNotFound
 	}
 	if k.Kind != kindCode {
-		return nil, fmt.Errorf("datastore: code key kind is unexpected: %q", k.Kind)
+		return nil, hubauth.ErrNotFound
 	}
 	if k.Parent == nil || k.Parent.Kind != kindClient {
-		return nil, fmt.Errorf("datastore: code key parent is invalid")
+		return nil, hubauth.ErrNotFound
 	}
 	return k, nil
 }

@@ -62,13 +62,13 @@ func (t *refreshToken) Export() *hubauth.RefreshToken {
 func refreshTokenKey(id string) (*datastore.Key, error) {
 	k, err := datastore.DecodeKey(id)
 	if err != nil {
-		return nil, err
+		return nil, hubauth.ErrNotFound
 	}
 	if k.Kind != kindRefreshToken {
-		return nil, fmt.Errorf("datastore: refresh token key kind is unexpected: %q", k.Kind)
+		return nil, hubauth.ErrNotFound
 	}
 	if k.Parent == nil || k.Parent.Kind != kindClient {
-		return nil, fmt.Errorf("datastore: refresh token key parent is invalid")
+		return nil, hubauth.ErrNotFound
 	}
 	return k, nil
 }

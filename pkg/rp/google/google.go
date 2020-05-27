@@ -145,17 +145,19 @@ func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token
 	}
 	idJSON, err := base64.URLEncoding.DecodeString(splitJWT[1])
 	if err != nil {
+		clog.Set(ctx, zap.NamedError("decode_err", err))
 		return nil, hubauth.OAuthError{Description: "invalid id_token encoding", Code: codeInvalid}
 	}
 
 	var idt idToken
 	if err := json.Unmarshal(idJSON, &idt); err != nil {
+		clog.Set(ctx, zap.NamedError("decode_err", err))
 		return nil, hubauth.OAuthError{Description: "invalid id_token json", Code: codeInvalid}
 	}
 	if idt.Nonce != nonce {
 		return nil, hubauth.OAuthError{Description: "id_token missing nonce", Code: codeInvalid}
 	}
-	if idt.EmailVerified != "true" || idt.Email == "" || idt.Sub == "" {
+	if !idt.EmailVerified || idt.Email == "" || idt.Sub == "" {
 		return nil, hubauth.OAuthError{Description: "id_token missing user", Code: codeInvalid}
 	}
 
@@ -172,7 +174,7 @@ type idToken struct {
 	Nonce         string
 	Sub           string
 	Email         string
-	EmailVerified string `json:"email_verified"`
+	EmailVerified bool `json:"email_verified"`
 	Name          string
 	Picture       string
 }

@@ -157,7 +157,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 	clog.Set(ctx, zap.Time("issued_code_expiry", codeData.ExpiryTime))
 
 	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == "fragment", map[string]string{
-		"code":  codeID + ":" + codeSecret,
+		"code":  codeID + "." + codeSecret,
 		"state": req.ClientState,
 	})
 	if dest == "" {
@@ -168,7 +168,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 }
 
 func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
-	splitCode := strings.SplitN(req.Code, ":", 2)
+	splitCode := strings.SplitN(req.Code, ".", 2)
 	if len(splitCode) != 2 {
 		return nil, &hubauth.OAuthError{
 			Code:        "access_denied",

@@ -5,9 +5,23 @@ import (
 	"sync"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-var Logger, _ = zap.NewProduction()
+var Logger, _ = zap.Config{
+	Level:    zap.NewAtomicLevelAt(zap.InfoLevel),
+	Encoding: "json",
+	EncoderConfig: zapcore.EncoderConfig{
+		LevelKey:       "level",
+		MessageKey:     "msg",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.RFC3339NanoTimeEncoder,
+		EncodeDuration: zapcore.MillisDurationEncoder,
+	},
+	OutputPaths:      []string{"stdout"},
+	ErrorOutputPaths: []string{"stdout"},
+}.Build()
 
 type ctxKey struct{}
 

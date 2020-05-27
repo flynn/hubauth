@@ -239,8 +239,8 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 		handleErr(w, req, err)
 		return
 	}
-	if redirectURI.Scheme == "https" {
-		w.Header().Set("Access-Control-Allow-Origin", "https://"+redirectURI.Host)
+	if redirectURI.Scheme == "https" || redirectURI.Scheme == "http" { // TODO: remove http
+		w.Header().Set("Access-Control-Allow-Origin", redirectURI.Scheme+"://"+redirectURI.Host)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -123,7 +123,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		Params: req.Params,
 	})
 	if err != nil {
-		if oa, ok := err.(*hubauth.OAuthError); ok && oa.Code == "access_denied" || oa.Code == "temporarily_unavailable" {
+		if oa, ok := err.(*hubauth.OAuthError); ok && (oa.Code == "access_denied" || oa.Code == "temporarily_unavailable") {
 			return nil, err
 		}
 		return nil, fmt.Errorf("idp: error from RP: %w", err)

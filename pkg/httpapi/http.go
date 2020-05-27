@@ -137,7 +137,7 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 		Value:    base64.URLEncoding.EncodeToString(signedCookie),
 		Secure:   true,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, req, res.URL, http.StatusFound)

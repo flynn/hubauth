@@ -109,6 +109,9 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 		CodeChallenge: params.Get("code_challenge"),
 		ResponseMode:  params.Get("response_mode"),
 	}
+	if authReq.ResponseMode == "" {
+		authReq.ResponseMode = "query"
+	}
 	res, err := a.idp.AuthorizeUserRedirect(req.Context(), authReq)
 	if err != nil {
 		handleErr(w, req, err)

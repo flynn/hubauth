@@ -11,6 +11,7 @@ import (
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/signpb"
+	"go.opencensus.io/plugin/ochttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -47,10 +48,13 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	startTime := time.Now()
 	switch {
 	case req.Method == "GET" && req.URL.Path == "/authorize":
+		ochttp.SetRoute(ctx, req.URL.Path)
 		a.AuthorizeUser(w, req)
 	case req.Method == "GET" && req.URL.Path == "/rp/google":
+		ochttp.SetRoute(ctx, req.URL.Path)
 		a.AuthorizeCode(w, req)
 	case req.Method == "POST" && req.URL.Path == "/token":
+		ochttp.SetRoute(ctx, req.URL.Path)
 		a.Token(w, req)
 	case req.Method == "GET" && req.URL.Path == "/":
 		http.Redirect(w, req, "https://flynn.io/", http.StatusFound)

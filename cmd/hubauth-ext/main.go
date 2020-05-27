@@ -8,11 +8,14 @@ import (
 
 	google_datastore "cloud.google.com/go/datastore"
 	kms "cloud.google.com/go/kms/apiv1"
+	"contrib.go.opencensus.io/exporter/stackdriver"
 	"github.com/flynn/hubauth/pkg/datastore"
 	"github.com/flynn/hubauth/pkg/httpapi"
 	"github.com/flynn/hubauth/pkg/idp"
 	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/rp/google"
+	"go.opencensus.io/plugin/ochttp"
+	"go.opencensus.io/trace"
 )
 
 func main() {
@@ -20,6 +23,12 @@ func main() {
 	if httpPort == "" {
 		httpPort = "8000"
 	}
+
+	exporter, err := stackdriver.NewExporter(stackdriver.Options{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	trace.RegisterExporter(exporter)
 
 	ctx := context.Background()
 	dsClient, err := google_datastore.NewClient(ctx, os.Getenv("PROJECT_ID"))
@@ -48,7 +57,7 @@ func main() {
 		log.Fatalf("error initializing access key: %s", err)
 	}
 
-	log.Fatal(http.ListenAndServe(":"+httpPort, httpapi.New(
+	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{Handler: httpapi.New(
 		idp.New(datastore.New(dsClient),
 			google.New(
 				os.Getenv("RP_GOOGLE_CLIENT_ID"),
@@ -60,5 +69,5 @@ func main() {
 			accessKey,
 		),
 		cookieKey,
-	)))
+	)}))
 }

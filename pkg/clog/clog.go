@@ -3,6 +3,7 @@ package clog
 import (
 	"context"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -17,11 +18,15 @@ var Logger, _ = zap.Config{
 		LineEnding:     zapcore.DefaultLineEnding,
 		EncodeLevel:    zapcore.LowercaseLevelEncoder,
 		EncodeTime:     zapcore.RFC3339NanoTimeEncoder,
-		EncodeDuration: zapcore.MillisDurationEncoder,
+		EncodeDuration: millisDurationEncoder,
 	},
 	OutputPaths:      []string{"stdout"},
 	ErrorOutputPaths: []string{"stdout"},
 }.Build()
+
+func millisDurationEncoder(d time.Duration, enc zapcore.PrimitiveArrayEncoder) {
+	enc.AppendFloat64(float64(d) / float64(time.Millisecond))
+}
 
 type ctxKey struct{}
 

@@ -67,7 +67,7 @@ type CodeStore interface {
 	VerifyAndDeleteCode(ctx context.Context, id, secret string) (*Code, error)
 	CreateCode(ctx context.Context, code *Code) (string, string, error)
 	DeleteCode(ctx context.Context, id string) error
-	DeleteExpiredCodes(ctx context.Context) (int, error)
+	DeleteExpiredCodes(ctx context.Context) ([]string, error)
 }
 
 type Code struct {

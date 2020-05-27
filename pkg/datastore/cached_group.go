@@ -38,7 +38,7 @@ type cachedGroupMember struct {
 	CreateTime time.Time
 }
 
-func (s *Service) ListCachedGroups(ctx context.Context) ([]*hubauth.CachedGroup, error) {
+func (s *service) ListCachedGroups(ctx context.Context) ([]*hubauth.CachedGroup, error) {
 	var data []*cachedGroup
 	if _, err := s.db.GetAll(ctx, datastore.NewQuery(kindCachedGroup), &data); err != nil {
 		return nil, fmt.Errorf("datastore: error listing cached groups: %w", err)
@@ -50,7 +50,7 @@ func (s *Service) ListCachedGroups(ctx context.Context) ([]*hubauth.CachedGroup,
 	return res, nil
 }
 
-func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup, members []*hubauth.CachedGroupMember) (*hubauth.SetCachedGroupResult, error) {
+func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup, members []*hubauth.CachedGroupMember) (*hubauth.SetCachedGroupResult, error) {
 	if len(members) > 249 {
 		return nil, fmt.Errorf("datastore: groups must not have more than 249 members")
 	}
@@ -143,7 +143,7 @@ func (s *Service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 	return res, nil
 }
 
-func (s *Service) GetCachedMemberGroups(ctx context.Context, userID string) ([]string, error) {
+func (s *service) GetCachedMemberGroups(ctx context.Context, userID string) ([]string, error) {
 	keys, err := s.db.GetAll(
 		ctx,
 		datastore.NewQuery(kindCachedGroupMember).KeysOnly().Filter("UserID =", userID),
@@ -159,7 +159,7 @@ func (s *Service) GetCachedMemberGroups(ctx context.Context, userID string) ([]s
 	return res, nil
 }
 
-func (s *Service) DeleteCachedGroup(ctx context.Context, domain, groupID string) error {
+func (s *service) DeleteCachedGroup(ctx context.Context, domain, groupID string) error {
 	k := datastore.NameKey(kindCachedGroup, groupID, datastore.NameKey(kindDomain, domain, nil))
 	q := datastore.NewQuery(kindCachedGroupMember).Ancestor(k).KeysOnly()
 	_, err := s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {

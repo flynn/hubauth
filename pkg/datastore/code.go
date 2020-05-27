@@ -69,7 +69,7 @@ func codeKey(code string) (*datastore.Key, error) {
 	return k, nil
 }
 
-func (s *Service) GetCode(ctx context.Context, id string) (*hubauth.Code, error) {
+func (s *service) GetCode(ctx context.Context, id string) (*hubauth.Code, error) {
 	k, err := codeKey(id)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ func (s *Service) GetCode(ctx context.Context, id string) (*hubauth.Code, error)
 	return res.Export(), nil
 }
 
-func (s *Service) VerifyAndDeleteCode(ctx context.Context, id, secret string) (*hubauth.Code, error) {
+func (s *service) VerifyAndDeleteCode(ctx context.Context, id, secret string) (*hubauth.Code, error) {
 	k, err := codeKey(id)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (s *Service) VerifyAndDeleteCode(ctx context.Context, id, secret string) (*
 	return res.Export(), nil
 }
 
-func (s *Service) CreateCode(ctx context.Context, code *hubauth.Code) (string, string, error) {
+func (s *service) CreateCode(ctx context.Context, code *hubauth.Code) (string, string, error) {
 	data, err := buildCode(code)
 	if err != nil {
 		return "", "", err
@@ -120,7 +120,7 @@ func (s *Service) CreateCode(ctx context.Context, code *hubauth.Code) (string, s
 	return data.Key.Encode(), data.Secret, nil
 }
 
-func (s *Service) DeleteCode(ctx context.Context, code string) error {
+func (s *service) DeleteCode(ctx context.Context, code string) error {
 	k, err := codeKey(code)
 	if err != nil {
 		return err
@@ -131,6 +131,6 @@ func (s *Service) DeleteCode(ctx context.Context, code string) error {
 	return nil
 }
 
-func (s *Service) DeleteExpiredCodes(ctx context.Context) ([]string, error) {
+func (s *service) DeleteExpiredCodes(ctx context.Context) ([]string, error) {
 	return s.deleteExpired(ctx, kindCode)
 }

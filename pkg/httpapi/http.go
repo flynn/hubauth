@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/hubauth"
@@ -14,26 +15,86 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const authCookie = "hubauth_authorize"
+
+func New(idp hubauth.IdPService, cookieKey signpb.Key) http.Handler {
+	return &api{
+		idp: idp,
+		key: cookieKey,
+	}
+}
+
 type api struct {
 	idp hubauth.IdPService
 	key signpb.Key
 }
 
-const authCookie = "hubauth_authorize"
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
 
-func (a *api) AuthorizeUser(req *http.Request, w http.ResponseWriter) {
+func (l *loggingResponseWriter) WriteHeader(status int) {
+	l.status = status
+	l.ResponseWriter.WriteHeader(status)
+}
+
+func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	req = req.WithContext(clog.Context(req.Context()))
+	ctx := req.Context()
+	w := &loggingResponseWriter{ResponseWriter: rw}
+
+	startTime := time.Now()
+	switch {
+	case req.Method == "GET" && req.URL.Path == "/authorize":
+		a.AuthorizeUser(w, req)
+	case req.Method == "GET" && req.URL.Path == "/rp/google":
+		a.AuthorizeCode(w, req)
+	case req.Method == "POST" && req.URL.Path == "/token":
+		a.Token(w, req)
+	case req.Method == "GET" && req.URL.Path == "/":
+		http.Redirect(w, req, "https://flynn.io/", http.StatusTemporaryRedirect)
+	case req.Method == "GET" && req.URL.Path == "/privacy":
+		http.Redirect(w, req, "https://flynn.io/legal/privacy", http.StatusTemporaryRedirect)
+	case req.Method != "GET":
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	default:
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found"))
+	}
+	duration := time.Since(startTime)
+
+	if w.status == 0 {
+		w.status = 200
+	}
+
+	clog.Set(ctx, zap.String("request_path", req.URL.Path))
+	clog.Set(ctx, zap.String("request_method", req.Method))
+	clog.Set(ctx, zap.String("request_ip", req.Header.Get("X-Forwarded-For")))
+	clog.Set(ctx, zap.String("request_user_agent", req.Header.Get("User-Agent")))
+	clog.Set(ctx, zap.Int("response_status", w.status))
+	if l := w.Header().Get("Location"); l != "" {
+		clog.Set(ctx, zap.String("response_location", l))
+	}
+	clog.Set(ctx, zap.Duration("response_duration", duration))
+
+	clog.Log(ctx, "request")
+}
+
+func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 	req = req.WithContext(hubauth.InitClientInfo(req.Context()))
 	params := req.URL.Query()
 	clog.Set(req.Context(), zap.Object("params", zapURLValuesMarshaler{params}))
 	if params.Get("code_challenge_method") != "S256" {
-		handleErr(req, w, &hubauth.OAuthError{
+		handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "code_challenge_method should be S256",
 		})
 		return
 	}
 	if params.Get("response_type") != "code" {
-		handleErr(req, w, &hubauth.OAuthError{
+		handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "response_type should be code",
 		})
@@ -49,7 +110,7 @@ func (a *api) AuthorizeUser(req *http.Request, w http.ResponseWriter) {
 	}
 	res, err := a.idp.AuthorizeUserRedirect(req.Context(), authReq)
 	if err != nil {
-		handleErr(req, w, err)
+		handleErr(w, req, err)
 		return
 	}
 
@@ -64,7 +125,7 @@ func (a *api) AuthorizeUser(req *http.Request, w http.ResponseWriter) {
 	}
 	signedCookie, err := signpb.SignMarshal(req.Context(), a.key, cookieData)
 	if err != nil {
-		handleErr(req, w, err)
+		handleErr(w, req, err)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -78,13 +139,13 @@ func (a *api) AuthorizeUser(req *http.Request, w http.ResponseWriter) {
 	http.Redirect(w, req, res.URL, http.StatusTemporaryRedirect)
 }
 
-func (a *api) AuthorizeCode(req *http.Request, w http.ResponseWriter) {
+func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 	params := req.URL.Query()
 	clog.Set(req.Context(), zap.Object("params", zapURLValuesMarshaler{params}))
 	req = req.WithContext(hubauth.InitClientInfo(req.Context()))
 	cookie, err := req.Cookie(authCookie)
 	if err != nil {
-		handleErr(req, w, &hubauth.OAuthError{
+		handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "missing auth cookie",
 		})
@@ -93,14 +154,14 @@ func (a *api) AuthorizeCode(req *http.Request, w http.ResponseWriter) {
 	data := &pb.AuthorizeCookie{}
 	cookieBytes, err := base64.URLEncoding.DecodeString(cookie.Value)
 	if err != nil {
-		handleErr(req, w, &hubauth.OAuthError{
+		handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "malformed auth cookie",
 		})
 		return
 	}
 	if err := signpb.VerifyUnmarshal(a.key, cookieBytes, data); err != nil {
-		handleErr(req, w, &hubauth.OAuthError{
+		handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "invalid auth cookie",
 		})
@@ -130,7 +191,7 @@ func (a *api) AuthorizeCode(req *http.Request, w http.ResponseWriter) {
 	}
 	res, err := a.idp.AuthorizeCodeRedirect(req.Context(), authReq)
 	if err != nil {
-		handleErr(req, w, err)
+		handleErr(w, req, err)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -141,9 +202,9 @@ func (a *api) AuthorizeCode(req *http.Request, w http.ResponseWriter) {
 	http.Redirect(w, req, res.URL, http.StatusTemporaryRedirect)
 }
 
-func (a *api) Token(req *http.Request, w http.ResponseWriter) {
+func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	if err := req.ParseForm(); err != nil {
-		handleErr(req, w, &hubauth.OAuthError{
+		handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "invalid form POST",
 		})
@@ -169,13 +230,13 @@ func (a *api) Token(req *http.Request, w http.ResponseWriter) {
 		})
 	}
 	if err != nil {
-		handleErr(req, w, err)
+		handleErr(w, req, err)
 		return
 	}
 
 	redirectURI, err := url.Parse(res.RedirectURI)
 	if err != nil {
-		handleErr(req, w, err)
+		handleErr(w, req, err)
 		return
 	}
 	if redirectURI.Scheme == "https" {
@@ -186,7 +247,7 @@ func (a *api) Token(req *http.Request, w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(res)
 }
 
-func handleErr(req *http.Request, w http.ResponseWriter, err error) {
+func handleErr(w http.ResponseWriter, req *http.Request, err error) {
 	oe, ok := err.(*hubauth.OAuthError)
 	if !ok {
 		oe = &hubauth.OAuthError{

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/datastore"
+	"github.com/flynn/hubauth/pkg/hubauth"
 	"golang.org/x/exp/errors/fmt"
 )
 
@@ -21,7 +22,11 @@ const (
 	kindCachedGroupMember = "CachedGoogleGroupMember"
 )
 
-type Service struct {
+func New(db *datastore.Client) hubauth.DataStore {
+	return &service{db: db}
+}
+
+type service struct {
 	db *datastore.Client
 }
 
@@ -34,7 +39,7 @@ func newRandomID() string {
 	return strings.TrimRight(base64.URLEncoding.EncodeToString(data), "=")
 }
 
-func (s *Service) deleteExpired(ctx context.Context, kind string) ([]string, error) {
+func (s *service) deleteExpired(ctx context.Context, kind string) ([]string, error) {
 	var deleted []string
 	q := datastore.NewQuery(kind).Filter("ExpiryTime <", time.Now()).KeysOnly()
 	keys, err := s.db.GetAll(ctx, q, nil)

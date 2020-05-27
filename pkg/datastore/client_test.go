@@ -11,12 +11,12 @@ import (
 	"golang.org/x/exp/errors"
 )
 
-func newTestService(t *testing.T) *Service {
+func newTestService(t *testing.T) *service {
 	c, err := datastore.NewClient(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Service{db: c}
+	return &service{db: c}
 }
 
 func TestClientCRD(t *testing.T) {

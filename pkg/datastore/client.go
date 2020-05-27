@@ -78,7 +78,7 @@ func clientKey(id string) (*datastore.Key, error) {
 	return k, nil
 }
 
-func (s *Service) GetClient(ctx context.Context, id string) (*hubauth.Client, error) {
+func (s *service) GetClient(ctx context.Context, id string) (*hubauth.Client, error) {
 	k, err := clientKey(id)
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func (s *Service) GetClient(ctx context.Context, id string) (*hubauth.Client, er
 	return res.Export(), nil
 }
 
-func (s *Service) CreateClient(ctx context.Context, client *hubauth.Client) (string, error) {
+func (s *service) CreateClient(ctx context.Context, client *hubauth.Client) (string, error) {
 	k, err := s.db.Put(ctx, datastore.IncompleteKey(kindClient, nil), buildClient(client))
 	if err != nil {
 		return "", fmt.Errorf("datastore: error creating client: %w", err)
@@ -101,7 +101,7 @@ func (s *Service) CreateClient(ctx context.Context, client *hubauth.Client) (str
 	return k.Encode(), nil
 }
 
-func (s *Service) MutateClient(ctx context.Context, id string, mut []*hubauth.ClientMutation) error {
+func (s *service) MutateClient(ctx context.Context, id string, mut []*hubauth.ClientMutation) error {
 	k, err := clientKey(id)
 	if err != nil {
 		return err
@@ -171,7 +171,7 @@ func (s *Service) MutateClient(ctx context.Context, id string, mut []*hubauth.Cl
 	return nil
 }
 
-func (s *Service) ListClients(ctx context.Context) ([]*hubauth.Client, error) {
+func (s *service) ListClients(ctx context.Context) ([]*hubauth.Client, error) {
 	var clients []*client
 	if _, err := s.db.GetAll(ctx, datastore.NewQuery(kindClient), &clients); err != nil {
 		return nil, fmt.Errorf("datastore: error listing clients: %w", err)
@@ -183,7 +183,7 @@ func (s *Service) ListClients(ctx context.Context) ([]*hubauth.Client, error) {
 	return res, nil
 }
 
-func (s *Service) DeleteClient(ctx context.Context, id string) error {
+func (s *service) DeleteClient(ctx context.Context, id string) error {
 	k, err := clientKey(id)
 	if err != nil {
 		return err

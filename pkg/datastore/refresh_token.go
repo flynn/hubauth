@@ -73,7 +73,7 @@ func refreshTokenKey(id string) (*datastore.Key, error) {
 	return k, nil
 }
 
-func (s *Service) GetRefreshToken(ctx context.Context, id string) (*hubauth.RefreshToken, error) {
+func (s *service) GetRefreshToken(ctx context.Context, id string) (*hubauth.RefreshToken, error) {
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (s *Service) GetRefreshToken(ctx context.Context, id string) (*hubauth.Refr
 	return res.Export(), nil
 }
 
-func (s *Service) CreateRefreshToken(ctx context.Context, token *hubauth.RefreshToken) (string, error) {
+func (s *service) CreateRefreshToken(ctx context.Context, token *hubauth.RefreshToken) (string, error) {
 	data, err := buildRefreshToken(token)
 	if err != nil {
 		return "", err
@@ -99,7 +99,7 @@ func (s *Service) CreateRefreshToken(ctx context.Context, token *hubauth.Refresh
 	return data.Key.Encode(), nil
 }
 
-func (s *Service) RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*hubauth.RefreshToken, error) {
+func (s *service) RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*hubauth.RefreshToken, error) {
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return nil, err
@@ -146,7 +146,7 @@ func (s *Service) RenewRefreshToken(ctx context.Context, clientID, id string, ve
 	return t.Export(), nil
 }
 
-func (s *Service) DeleteRefreshToken(ctx context.Context, id string) error {
+func (s *service) DeleteRefreshToken(ctx context.Context, id string) error {
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return err
@@ -157,7 +157,7 @@ func (s *Service) DeleteRefreshToken(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) DeleteRefreshTokensWithCode(ctx context.Context, c string) ([]string, error) {
+func (s *service) DeleteRefreshTokensWithCode(ctx context.Context, c string) ([]string, error) {
 	parsedCodeKey, err := codeKey(c)
 	if err != nil {
 		return nil, err
@@ -180,6 +180,6 @@ func (s *Service) DeleteRefreshTokensWithCode(ctx context.Context, c string) ([]
 	return res, nil
 }
 
-func (s *Service) DeleteExpiredRefreshTokens(ctx context.Context) ([]string, error) {
+func (s *service) DeleteExpiredRefreshTokens(ctx context.Context) ([]string, error) {
 	return s.deleteExpired(ctx, kindRefreshToken)
 }

@@ -18,7 +18,16 @@ import (
 	"golang.org/x/exp/errors/fmt"
 )
 
-type IdPService struct {
+func New(db hubauth.DataStore, rp rp.AuthService, refreshKey, accessKey signpb.Key) hubauth.IdPService {
+	return &idpService{
+		db:         db,
+		rp:         rp,
+		refreshKey: refreshKey,
+		accessKey:  accessKey,
+	}
+}
+
+type idpService struct {
 	db hubauth.DataStore
 	rp rp.AuthService
 
@@ -26,7 +35,7 @@ type IdPService struct {
 	accessKey  signpb.Key
 }
 
-func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeRedirect, error) {
+func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeRedirect, error) {
 	client, err := s.db.GetClient(ctx, req.ClientID)
 	if err != nil {
 		if errors.Is(err, hubauth.ErrNotFound) {
@@ -92,7 +101,7 @@ func (s *IdPService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 
 const codeExpiry = 30 * time.Second
 
-func (s *IdPService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeCodeRequest) (*hubauth.AuthorizeRedirect, error) {
+func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeCodeRequest) (*hubauth.AuthorizeRedirect, error) {
 	client, err := s.db.GetClient(ctx, req.ClientID)
 	if err != nil {
 		if errors.Is(err, hubauth.ErrNotFound) {
@@ -158,7 +167,7 @@ func (s *IdPService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 	return &hubauth.AuthorizeRedirect{URL: dest}, nil
 }
 
-func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
+func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
 	deleted, err := s.db.DeleteRefreshTokensWithCode(ctx, req.Code)
 	if err != nil {
 		return nil, fmt.Errorf("idp: error deleting refresh tokens with code: %q", err)
@@ -275,7 +284,7 @@ func (s *IdPService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	}, nil
 }
 
-func (s *IdPService) RefreshToken(ctx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.AccessToken, error) {
+func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.AccessToken, error) {
 	tokenMsg, err := base64.URLEncoding.DecodeString(req.RefreshToken)
 	if err != nil {
 		clog.Set(ctx, zap.NamedError("decode_error", err))
@@ -370,7 +379,7 @@ func (s *IdPService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	}, nil
 }
 
-func (s *IdPService) checkUser(ctx context.Context, client *hubauth.Client, userID string) error {
+func (s *idpService) checkUser(ctx context.Context, client *hubauth.Client, userID string) error {
 	// TODO: remove this
 	return nil
 
@@ -399,7 +408,7 @@ outer:
 	return nil
 }
 
-func (s *IdPService) signRefreshToken(ctx context.Context, key string, version int, userID string) (string, error) {
+func (s *idpService) signRefreshToken(ctx context.Context, key string, version int, userID string) (string, error) {
 	if m := len(key) % 4; m != 0 {
 		key += strings.Repeat("=", 4-m)
 	}
@@ -423,7 +432,7 @@ func (s *IdPService) signRefreshToken(ctx context.Context, key string, version i
 
 const accessTokenDuration = 5 * time.Minute
 
-func (s *IdPService) signAccessToken(ctx context.Context, clientID, userID, userEmail string) (token string, id string, err error) {
+func (s *idpService) signAccessToken(ctx context.Context, clientID, userID, userEmail string) (token string, id string, err error) {
 	exp, err := ptypes.TimestampProto(time.Now().Add(accessTokenDuration))
 	if err != nil {
 		// this should be unreachable

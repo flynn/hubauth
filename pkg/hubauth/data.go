@@ -182,3 +182,24 @@ func RedirectURI(base string, fragment bool, data map[string]string) string {
 
 	return u.String()
 }
+
+type ClientInfo struct {
+	// Only set after the RedirectURI has been validated
+	RedirectURI string
+	State       string
+	Fragment    bool
+}
+
+type ctxKeyClientInfo struct{}
+
+func InitClientInfo(parent context.Context) context.Context {
+	return context.WithValue(parent, ctxKeyClientInfo{}, &ClientInfo{})
+}
+
+func GetClientInfo(ctx context.Context) *ClientInfo {
+	res, ok := ctx.Value(ctxKeyClientInfo{}).(*ClientInfo)
+	if !ok {
+		return nil
+	}
+	return res
+}

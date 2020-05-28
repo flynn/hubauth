@@ -245,6 +245,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	chall := sha256.Sum256([]byte(req.CodeVerifier))
 	challenge := base64.URLEncoding.EncodeToString(chall[:])
 	if code.PKCEChallenge != challenge {
+		clog.Set(ctx, zap.String("code_challenge", code.PKCEChallenge))
 		clog.Set(ctx, zap.String("expected_challenge", challenge))
 		return nil, &hubauth.OAuthError{
 			Code:        "access_denied",

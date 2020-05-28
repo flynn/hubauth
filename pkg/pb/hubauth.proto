@@ -21,11 +21,10 @@ message RefreshToken {
 }
 
 message AccessToken {
-    string issuer = 1;
-    string client_id = 2;
-    string user_id = 3;
-    string user_email = 4;
-    google.protobuf.Timestamp expire_time = 5;
+    string client_id = 1;
+    string user_id = 2;
+    string user_email = 3;
+    google.protobuf.Timestamp expire_time = 4;
 }
 
 message AuthorizeCookie {

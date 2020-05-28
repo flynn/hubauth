@@ -275,6 +275,7 @@ func handleErr(w http.ResponseWriter, req *http.Request, err error) {
 	} else {
 		w.WriteHeader(http.StatusBadRequest)
 	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(oe)
 }

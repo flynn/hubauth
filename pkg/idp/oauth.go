@@ -171,7 +171,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	splitCode := strings.SplitN(req.Code, ".", 2)
 	if len(splitCode) != 2 {
 		return nil, &hubauth.OAuthError{
-			Code:        "access_denied",
+			Code:        "invalid_grant",
 			Description: "invalid code",
 		}
 	}
@@ -180,7 +180,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if err != nil {
 		if errors.Is(err, hubauth.ErrNotFound) {
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "invalid code",
 			}
 		}
@@ -189,7 +189,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if len(deleted) > 0 {
 		clog.Set(ctx, zap.Strings("deleted_refresh_tokens", deleted))
 		return nil, &hubauth.OAuthError{
-			Code:        "access_denied",
+			Code:        "invalid_grant",
 			Description: "code already exchanged",
 		}
 	}
@@ -198,7 +198,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if err != nil {
 		if errors.Is(err, hubauth.ErrIncorrectCodeSecret) {
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "malformed or incorrect code",
 			}
 		}
@@ -209,14 +209,14 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if req.ClientID != code.ClientID {
 		clog.Set(ctx, zap.String("code_client_id", code.ClientID))
 		return nil, &hubauth.OAuthError{
-			Code:        "access_denied",
+			Code:        "invalid_grant",
 			Description: "client_id mismatch",
 		}
 	}
 	if req.RedirectURI != code.RedirectURI {
 		clog.Set(ctx, zap.String("code_redirect_uri", code.RedirectURI))
 		return nil, &hubauth.OAuthError{
-			Code:        "access_denied",
+			Code:        "invalid_grant",
 			Description: "redirect_uri mismatch",
 		}
 	}
@@ -225,7 +225,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if err != nil {
 		if errors.Is(err, hubauth.ErrIncorrectCodeSecret) {
 			return nil, &hubauth.OAuthError{
-				Code:        "invalid_request",
+				Code:        "invalid_client",
 				Description: "unknown client",
 			}
 		}
@@ -235,7 +235,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	if err := s.checkUser(ctx, client, code.UserID); err != nil {
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "user is not authorized for access",
 			}
 		}
@@ -248,7 +248,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 		clog.Set(ctx, zap.String("code_challenge", code.PKCEChallenge))
 		clog.Set(ctx, zap.String("expected_challenge", challenge))
 		return nil, &hubauth.OAuthError{
-			Code:        "access_denied",
+			Code:        "invalid_request",
 			Description: "code_verifier mismatch",
 		}
 	}
@@ -297,7 +297,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	if err != nil {
 		clog.Set(ctx, zap.NamedError("decode_error", err))
 		return nil, &hubauth.OAuthError{
-			Code:        "invalid_request",
+			Code:        "invalid_grant",
 			Description: "malformed refresh_token",
 		}
 	}
@@ -305,7 +305,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	if err := signpb.VerifyUnmarshal(s.refreshKey, tokenMsg, oldToken); err != nil {
 		clog.Set(ctx, zap.NamedError("unmarshal_error", err))
 		return nil, &hubauth.OAuthError{
-			Code:        "invalid_request",
+			Code:        "invalid_grant",
 			Description: "invalid refresh_token",
 		}
 	}
@@ -318,7 +318,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	if err != nil {
 		if errors.Is(err, hubauth.ErrNotFound) {
 			return nil, &hubauth.OAuthError{
-				Code:        "invalid_request",
+				Code:        "invalid_client",
 				Description: "unknown client",
 			}
 		}
@@ -328,7 +328,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	if err := s.checkUser(ctx, client, oldToken.UserId); err != nil {
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "user is not authorized for access",
 			}
 		}
@@ -340,22 +340,22 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		switch {
 		case errors.Is(err, hubauth.ErrNotFound):
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "refresh_token not found",
 			}
 		case errors.Is(err, hubauth.ErrRefreshTokenVersionMismatch):
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "unexpected refresh_token version",
 			}
 		case errors.Is(err, hubauth.ErrClientIDMismatch):
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "client_id mismatch",
 			}
 		case errors.Is(err, hubauth.ErrExpired):
 			return nil, &hubauth.OAuthError{
-				Code:        "access_denied",
+				Code:        "invalid_grant",
 				Description: "refresh_token expired",
 			}
 		}

@@ -196,7 +196,7 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 
 	code, err := s.db.VerifyAndDeleteCode(ctx, splitCode[0], splitCode[1])
 	if err != nil {
-		if errors.Is(err, hubauth.ErrIncorrectCodeSecret) {
+		if errors.Is(err, hubauth.ErrIncorrectCodeSecret) || errors.Is(err, hubauth.ErrNotFound) {
 			return nil, &hubauth.OAuthError{
 				Code:        "invalid_grant",
 				Description: "malformed or incorrect code",
@@ -401,7 +401,7 @@ func (s *idpService) checkUser(ctx context.Context, client *hubauth.Client, user
 	allowed := false
 outer:
 	for _, p := range client.Policies {
-		for _, allowedGroup := range p.Groups {
+		for _, allowedGroup := range p.GoogleGroups {
 			for _, g := range groups {
 				if g == allowedGroup {
 					allowed = true

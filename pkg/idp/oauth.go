@@ -282,12 +282,13 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	clog.Set(ctx, zap.Duration("issued_access_token_expires_in", accessTokenDuration))
 
 	return &hubauth.AccessToken{
-		RefreshToken: refreshToken,
-		AccessToken:  accessToken,
-		TokenType:    "Bearer",
-		Nonce:        code.Nonce,
-		ExpiresIn:    int(accessTokenDuration / time.Second),
-		RedirectURI:  req.RedirectURI,
+		RefreshToken:          refreshToken,
+		AccessToken:           accessToken,
+		TokenType:             "Bearer",
+		Nonce:                 code.Nonce,
+		ExpiresIn:             int(accessTokenDuration / time.Second),
+		RedirectURI:           req.RedirectURI,
+		RefreshTokenExpiresIn: int(client.RefreshTokenExpiry / time.Second),
 	}, nil
 }
 
@@ -378,11 +379,12 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	clog.Set(ctx, zap.Duration("issued_access_token_expires_in", accessTokenDuration))
 
 	return &hubauth.AccessToken{
-		RefreshToken: refreshToken,
-		AccessToken:  accessToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    int(accessTokenDuration / time.Second),
-		RedirectURI:  newToken.RedirectURI,
+		RefreshToken:          refreshToken,
+		AccessToken:           accessToken,
+		TokenType:             "Bearer",
+		ExpiresIn:             int(accessTokenDuration / time.Second),
+		RedirectURI:           newToken.RedirectURI,
+		RefreshTokenExpiresIn: int(time.Until(newToken.ExpiryTime) / time.Second),
 	}, nil
 }
 

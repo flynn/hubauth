@@ -42,6 +42,8 @@ type AccessToken struct {
 	ExpiresIn    int    `json:"expires_in"`
 	Nonce        string `json:"nonce,omitempty"`
 
+	RefreshTokenExpiresIn int `json:"refresh_token_expires_in"`
+
 	// used by HTTP layer to set Access-Control-Allow-Origin
 	RedirectURI string `json:"-"`
 }

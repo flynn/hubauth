@@ -54,7 +54,6 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		ochttp.SetRoute(ctx, req.URL.Path)
 		a.AuthorizeCode(w, req)
 	case req.Method == "POST" && req.URL.Path == "/token":
-		ochttp.SetRoute(ctx, req.URL.Path)
 		a.Token(w, req)
 	case req.Method == "GET" && req.URL.Path == "/":
 		http.Redirect(w, req, "https://flynn.io/", http.StatusFound)
@@ -236,7 +235,14 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 			ClientID:     req.PostForm.Get("client_id"),
 			RefreshToken: req.PostForm.Get("refresh_token"),
 		})
+	default:
+		handleErr(w, req, &hubauth.OAuthError{
+			Code:        "invalid_request",
+			Description: "invalid grant_type",
+		})
+		return
 	}
+	ochttp.SetRoute(req.Context(), req.URL.Path+"/"+req.Form.Get("grant_type"))
 	if err != nil {
 		handleErr(w, req, err)
 		return

@@ -9,6 +9,7 @@ import (
 	google_datastore "cloud.google.com/go/datastore"
 	kms "cloud.google.com/go/kms/apiv1"
 	"contrib.go.opencensus.io/exporter/stackdriver"
+	"contrib.go.opencensus.io/exporter/stackdriver/propagation"
 	"github.com/flynn/hubauth/pkg/datastore"
 	"github.com/flynn/hubauth/pkg/httpapi"
 	"github.com/flynn/hubauth/pkg/idp"
@@ -58,17 +59,20 @@ func main() {
 		log.Fatalf("error initializing access key: %s", err)
 	}
 
-	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{Handler: httpapi.New(
-		idp.New(datastore.New(dsClient),
-			google.New(
-				os.Getenv("RP_GOOGLE_CLIENT_ID"),
-				os.Getenv("RP_GOOGLE_CLIENT_SECRET"),
-				os.Getenv("BASE_URL")+"/rp/google",
-				rpKey,
+	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
+		Propagation: &propagation.HTTPFormat{},
+		Handler: httpapi.New(
+			idp.New(datastore.New(dsClient),
+				google.New(
+					os.Getenv("RP_GOOGLE_CLIENT_ID"),
+					os.Getenv("RP_GOOGLE_CLIENT_SECRET"),
+					os.Getenv("BASE_URL")+"/rp/google",
+					rpKey,
+				),
+				refreshKey,
+				accessKey,
 			),
-			refreshKey,
-			accessKey,
-		),
-		cookieKey,
-	)}))
+			cookieKey,
+		)},
+	))
 }

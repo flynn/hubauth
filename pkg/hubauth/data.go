@@ -123,7 +123,6 @@ type CachedGroup struct {
 	Domain     string
 	GroupID    string
 	Email      string
-	Etag       string
 	UpdateTime time.Time
 	CreateTime time.Time
 }
@@ -131,7 +130,6 @@ type CachedGroup struct {
 type CachedGroupMember struct {
 	UserID string
 	Email  string
-	Etag   string
 }
 
 type OAuthError struct {

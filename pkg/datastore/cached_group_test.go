@@ -17,18 +17,15 @@ func TestCachedGroupCRD(t *testing.T) {
 		Domain:  "example.com",
 		GroupID: "123",
 		Email:   "g@example.com",
-		Etag:    "abc",
 	}
 	members := []*hubauth.CachedGroupMember{
 		{
 			UserID: "444",
 			Email:  "u1@example.com",
-			Etag:   "def",
 		},
 		{
 			UserID: "443",
 			Email:  "u2@example.com",
-			Etag:   "ghi",
 		},
 	}
 
@@ -100,36 +97,30 @@ func TestCachedGroupUpdate(t *testing.T) {
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			beforeMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 			newGroup: &hubauth.CachedGroup{
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			newMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 		},
@@ -139,36 +130,30 @@ func TestCachedGroupUpdate(t *testing.T) {
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			beforeMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 			newGroup: &hubauth.CachedGroup{
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			newMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "c",
 					Email:  "c@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "d",
 					Email:  "d@example.com",
-					Etag:   "2",
 				},
 			},
 			result: &hubauth.SetCachedGroupResult{
@@ -182,41 +167,34 @@ func TestCachedGroupUpdate(t *testing.T) {
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			beforeMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 			newGroup: &hubauth.CachedGroup{
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			newMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "c",
 					Email:  "c@example.com",
-					Etag:   "2",
 				},
 			},
 			result: &hubauth.SetCachedGroupResult{AddedMembers: []string{"c"}},
@@ -227,36 +205,30 @@ func TestCachedGroupUpdate(t *testing.T) {
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			beforeMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 			newGroup: &hubauth.CachedGroup{
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			newMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "aasdf@example.com",
-					Etag:   "3",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 			result: &hubauth.SetCachedGroupResult{UpdatedMembers: []string{"a"}},
@@ -267,31 +239,26 @@ func TestCachedGroupUpdate(t *testing.T) {
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			beforeMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 			newGroup: &hubauth.CachedGroup{
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			newMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 			},
 			result: &hubauth.SetCachedGroupResult{DeletedMembers: []string{"b"}},
@@ -302,25 +269,21 @@ func TestCachedGroupUpdate(t *testing.T) {
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			beforeMembers: []*hubauth.CachedGroupMember{
 				{
 					UserID: "a",
 					Email:  "a@example.com",
-					Etag:   "2",
 				},
 				{
 					UserID: "b",
 					Email:  "b@example.com",
-					Etag:   "2",
 				},
 			},
 			newGroup: &hubauth.CachedGroup{
 				Domain:  "example.com",
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
-				Etag:    "1",
 			},
 			result: &hubauth.SetCachedGroupResult{DeletedMembers: []string{"a", "b"}},
 		},
@@ -380,19 +343,16 @@ func TestCachedGroupMultiGroupMember(t *testing.T) {
 		Domain:  "example.com",
 		GroupID: "1",
 		Email:   "g1@example.com",
-		Etag:    "abc",
 	}
 	cg2 := &hubauth.CachedGroup{
 		Domain:  "example.com",
 		GroupID: "2",
 		Email:   "g2@example.com",
-		Etag:    "abc",
 	}
 	members := []*hubauth.CachedGroupMember{
 		{
 			UserID: "u1",
 			Email:  "u1@example.com",
-			Etag:   "def",
 		},
 	}
 

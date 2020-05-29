@@ -13,7 +13,6 @@ import (
 type cachedGroup struct {
 	Key        *datastore.Key `datastore:"__key__"`
 	Email      string
-	Etag       string `datastore:",noindex"`
 	UpdateTime time.Time
 	CreateTime time.Time
 }
@@ -23,7 +22,6 @@ func (g *cachedGroup) Export() *hubauth.CachedGroup {
 		Domain:     g.Key.Parent.Name,
 		GroupID:    g.Key.Name,
 		Email:      g.Email,
-		Etag:       g.Etag,
 		UpdateTime: g.UpdateTime,
 		CreateTime: g.CreateTime,
 	}
@@ -33,7 +31,6 @@ type cachedGroupMember struct {
 	Key        *datastore.Key `datastore:"__key__"`
 	UserID     string
 	Email      string
-	Etag       string `datastore:",noindex"`
 	UpdateTime time.Time
 	CreateTime time.Time
 }
@@ -86,9 +83,8 @@ func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 				res.DeletedMembers = append(res.DeletedMembers, m.UserID)
 				continue
 			}
-			if newData.Email != m.Email || newData.Etag != m.Etag {
+			if newData.Email != m.Email {
 				m.Email = newData.Email
-				m.Etag = newData.Etag
 				m.UpdateTime = now
 				if _, err := tx.Put(m.Key, m); err != nil {
 					return fmt.Errorf("failed to put update member %s: %w", m.Key.Encode(), err)
@@ -108,7 +104,6 @@ func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 				&cachedGroupMember{
 					UserID:     m.UserID,
 					Email:      m.Email,
-					Etag:       m.Etag,
 					CreateTime: now,
 					UpdateTime: now,
 				},
@@ -119,9 +114,8 @@ func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 			res.AddedMembers = append(res.AddedMembers, m.UserID)
 		}
 
-		if existingGroup.Email != group.Email || existingGroup.Etag != group.Etag {
+		if existingGroup.Email != group.Email {
 			existingGroup.Email = group.Email
-			existingGroup.Etag = group.Etag
 			existingGroup.UpdateTime = now
 			if existingGroup.CreateTime.IsZero() {
 				existingGroup.CreateTime = now

@@ -11,8 +11,8 @@ require (
 	github.com/golang/protobuf v1.4.2
 	github.com/google/go-cmp v0.4.1 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5
+	github.com/jedib0t/go-pretty/v6 v6.0.3
 	github.com/stretchr/testify v1.5.1
-	github.com/titanous/go-pretty/v6 v6.0.4
 	go.opencensus.io v0.22.3
 	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37

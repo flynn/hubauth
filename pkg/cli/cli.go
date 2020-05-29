@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/flynn/hubauth/pkg/hubauth"
-	"github.com/titanous/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/table"
 )
 
 type Config struct {

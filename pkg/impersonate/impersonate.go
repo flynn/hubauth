@@ -114,8 +114,6 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 	}
 	name := "projects/-/serviceAccounts/" + ts.targetPrincipal
 
-	var accessToken string
-	var expireAt time.Time
 	if ts.subject == "" {
 		tokenRequest := &iamcredentials.GenerateAccessTokenRequest{
 			Lifetime:  fmt.Sprintf("%ds", int(ts.lifetime.Seconds())),
@@ -126,8 +124,10 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error calling iamcredentials.GenerateAccessToken: %w", err)
 		}
-		accessToken = at.AccessToken
-		expireAt, err = time.Parse(time.RFC3339, at.ExpireTime)
+		ts.impersonatedToken = &oauth2.Token{
+			AccessToken: at.AccessToken,
+		}
+		ts.impersonatedToken.Expiry, err = time.Parse(time.RFC3339, at.ExpireTime)
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error parsing ExpireTime from iamcredentials: %w", err)
 		}
@@ -168,12 +168,12 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		req = req.WithContext(ts.ctx)
 		resp, err := hc.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("impersonate: cannot exchange jwt for access token: %w", err)
+			return nil, fmt.Errorf("impersonate: error exchanging jwt for access token: %w", err)
 		}
 		defer resp.Body.Close()
 		body, err := ioutil.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		if err != nil {
-			return nil, fmt.Errorf("impersonate: cannot exchange jwt for access token: %w", err)
+			return nil, fmt.Errorf("impersonate: error reading access token body: %w", err)
 		}
 		if c := resp.StatusCode; c != http.StatusOK {
 			return nil, &oauth2.RetrieveError{
@@ -189,21 +189,13 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		}
 
 		if err := json.Unmarshal(body, &tokenRes); err != nil {
-			return nil, fmt.Errorf("impersonate: cannot exchange jwt for access token: %w", err)
+			return nil, fmt.Errorf("impersonate: error parsing access token: %w", err)
 		}
 
-		accessToken = tokenRes.AccessToken
-		now := time.Now()
-		now.Add(time.Second * time.Duration(tokenRes.ExpiresIn))
-		expireAt = now
-		if err != nil {
-			return nil, fmt.Errorf("impersonate: error parsing ExpireTime from iamcredentials: %w", err)
+		ts.impersonatedToken = &oauth2.Token{
+			AccessToken: tokenRes.AccessToken,
+			Expiry:      time.Now().Add(time.Second * time.Duration(tokenRes.ExpiresIn)),
 		}
-	}
-
-	ts.impersonatedToken = &oauth2.Token{
-		AccessToken: accessToken,
-		Expiry:      expireAt,
 	}
 
 	return ts.impersonatedToken, nil

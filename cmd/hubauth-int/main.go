@@ -35,7 +35,7 @@ func main() {
 
 	ctx := context.Background()
 	errClient, err := errorreporting.NewClient(ctx, os.Getenv("PROJECT_ID"), errorreporting.Config{
-		ServiceName:    "hubauth-ext",
+		ServiceName:    "hubauth-int",
 		ServiceVersion: os.Getenv("BUILD_REV"),
 	})
 	if err != nil {

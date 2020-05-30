@@ -76,7 +76,11 @@ func TokenSource(ctx context.Context, tokenConfig *TokenConfig) (oauth2.TokenSou
 		return nil, fmt.Errorf("impersonate: lifetime must be less than or equal to 3600 seconds")
 	}
 
+	hc := oauth2.NewClient(ctx, nil)
+	hc.Transport = &ochttp.Transport{Base: hc.Transport}
+
 	return &tokenSource{
+		httpClient:      hc,
 		rootSource:      tokenConfig.TokenSource,
 		targetPrincipal: tokenConfig.TargetPrincipal,
 		lifetime:        tokenConfig.Lifetime,
@@ -91,6 +95,7 @@ type tokenSource struct {
 	refreshMutex      sync.Mutex    // guards impersonatedToken; held while fetching or updating it.
 	impersonatedToken *oauth2.Token // Token representing the impersonated identity.
 
+	httpClient      *http.Client
 	rootSource      oauth2.TokenSource
 	targetPrincipal string
 	lifetime        time.Duration
@@ -124,6 +129,7 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error calling iamcredentials.GenerateAccessToken: %w", err)
 		}
+
 		ts.impersonatedToken = &oauth2.Token{
 			AccessToken: at.AccessToken,
 		}
@@ -149,6 +155,7 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		signJwtRequest := &iamcredentials.SignJwtRequest{
 			Delegates: []string{name},
 			Payload:   string(b),
@@ -157,37 +164,37 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error retrieving short-lived iamcredentials token: %w", err)
 		}
-		hc := oauth2.NewClient(ts.ctx, nil)
-		hc.Transport = &ochttp.Transport{Base: hc.Transport}
-		v := make(url.Values)
+
+		v := make(url.Values, 3)
 		v.Set("grant_type", "assertion")
 		v.Set("assertion_type", "http://oauth.net/grant_type/jwt/1.0/bearer")
 		v.Set("assertion", jwt.SignedJwt)
 		req, _ := http.NewRequest("POST", google.JWTTokenURL, strings.NewReader(v.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req = req.WithContext(ts.ctx)
-		resp, err := hc.Do(req)
+
+		res, err := ts.httpClient.Do(req.WithContext(ts.ctx))
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error exchanging jwt for access token: %w", err)
 		}
-		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		defer res.Body.Close()
+
+		body, err := ioutil.ReadAll(io.LimitReader(res.Body, 1<<20))
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error reading access token body: %w", err)
 		}
-		if c := resp.StatusCode; c != http.StatusOK {
+		if res.StatusCode != http.StatusOK {
 			return nil, &oauth2.RetrieveError{
-				Response: resp,
+				Response: res,
 				Body:     body,
 			}
 		}
+
 		var tokenRes struct {
 			AccessToken string `json:"access_token"`
 			TokenType   string `json:"token_type"`
 			IDToken     string `json:"id_token"`
 			ExpiresIn   int64  `json:"expires_in"`
 		}
-
 		if err := json.Unmarshal(body, &tokenRes); err != nil {
 			return nil, fmt.Errorf("impersonate: error parsing access token: %w", err)
 		}

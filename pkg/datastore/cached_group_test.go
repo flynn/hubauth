@@ -157,8 +157,8 @@ func TestCachedGroupUpdate(t *testing.T) {
 				},
 			},
 			result: &hubauth.SetCachedGroupResult{
-				AddedMembers:   []string{"c", "d"},
-				DeletedMembers: []string{"a", "b"},
+				AddedMembers:   []string{"c@example.com", "d@example.com"},
+				DeletedMembers: []string{"a@example.com", "b@example.com"},
 			},
 		},
 		{
@@ -197,7 +197,7 @@ func TestCachedGroupUpdate(t *testing.T) {
 					Email:  "c@example.com",
 				},
 			},
-			result: &hubauth.SetCachedGroupResult{AddedMembers: []string{"c"}},
+			result: &hubauth.SetCachedGroupResult{AddedMembers: []string{"c@example.com"}},
 		},
 		{
 			desc: "update one",
@@ -231,7 +231,7 @@ func TestCachedGroupUpdate(t *testing.T) {
 					Email:  "b@example.com",
 				},
 			},
-			result: &hubauth.SetCachedGroupResult{UpdatedMembers: []string{"a"}},
+			result: &hubauth.SetCachedGroupResult{UpdatedMembers: []string{"aasdf@example.com"}},
 		},
 		{
 			desc: "delete one",
@@ -261,7 +261,7 @@ func TestCachedGroupUpdate(t *testing.T) {
 					Email:  "a@example.com",
 				},
 			},
-			result: &hubauth.SetCachedGroupResult{DeletedMembers: []string{"b"}},
+			result: &hubauth.SetCachedGroupResult{DeletedMembers: []string{"b@example.com"}},
 		},
 		{
 			desc: "delete all",
@@ -285,7 +285,7 @@ func TestCachedGroupUpdate(t *testing.T) {
 				GroupID: "testupdate",
 				Email:   "testupdate@example.com",
 			},
-			result: &hubauth.SetCachedGroupResult{DeletedMembers: []string{"a", "b"}},
+			result: &hubauth.SetCachedGroupResult{DeletedMembers: []string{"a@example.com", "b@example.com"}},
 		},
 		// delete/add/update/update group
 	}

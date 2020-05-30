@@ -80,7 +80,7 @@ func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 				if err := tx.Delete(m.Key); err != nil {
 					return fmt.Errorf("failed to delete member %s: %w", m.Key.Encode(), err)
 				}
-				res.DeletedMembers = append(res.DeletedMembers, m.UserID)
+				res.DeletedMembers = append(res.DeletedMembers, m.Email)
 				continue
 			}
 			if newData.Email != m.Email {
@@ -89,7 +89,7 @@ func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 				if _, err := tx.Put(m.Key, m); err != nil {
 					return fmt.Errorf("failed to put update member %s: %w", m.Key.Encode(), err)
 				}
-				res.UpdatedMembers = append(res.UpdatedMembers, m.UserID)
+				res.UpdatedMembers = append(res.UpdatedMembers, m.Email)
 			}
 			existingSet[m.UserID] = struct{}{}
 		}
@@ -111,7 +111,7 @@ func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 			if err != nil {
 				return fmt.Errorf("failed to put create member %s: %w", memberKey.Encode(), err)
 			}
-			res.AddedMembers = append(res.AddedMembers, m.UserID)
+			res.AddedMembers = append(res.AddedMembers, m.Email)
 		}
 
 		if existingGroup.Email != group.Email {

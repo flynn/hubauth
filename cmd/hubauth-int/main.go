@@ -36,12 +36,12 @@ func main() {
 	}
 	ss := groupsync.New(datastore.New(dsClient))
 
-	http.Handle("/cron", ochttp.WithRouteTag(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/cron", func(w http.ResponseWriter, r *http.Request) {
 		if err := ss.Sync(r.Context()); err != nil {
 			clog.Logger.Error("sync error", zap.Error(err))
 		}
 		w.WriteHeader(http.StatusOK)
-	}), "/cron"))
+	})
 
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{Propagation: &propagation.HTTPFormat{}}))
 }

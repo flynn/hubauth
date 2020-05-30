@@ -11,7 +11,7 @@ import (
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/signpb"
-	"go.opencensus.io/plugin/ochttp"
+	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -48,10 +48,8 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	startTime := time.Now()
 	switch {
 	case req.Method == "GET" && req.URL.Path == "/authorize":
-		ochttp.SetRoute(ctx, req.URL.Path)
 		a.AuthorizeUser(w, req)
 	case req.Method == "GET" && req.URL.Path == "/rp/google":
-		ochttp.SetRoute(ctx, req.URL.Path)
 		a.AuthorizeCode(w, req)
 	case req.Method == "POST" && req.URL.Path == "/token":
 		a.Token(w, req)
@@ -242,7 +240,10 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 		})
 		return
 	}
-	ochttp.SetRoute(req.Context(), req.URL.Path+"/"+req.Form.Get("grant_type"))
+	span := trace.FromContext(req.Context())
+	if span != nil {
+		span.AddAttributes(trace.StringAttribute("grant_type", req.Form.Get("grant_type")))
+	}
 	if err != nil {
 		handleErr(w, req, err)
 		return

@@ -118,7 +118,7 @@ func (s *Service) Sync(ctx context.Context) error {
 			}
 
 			cachedMembers := make([]*hubauth.CachedGroupMember, 0, len(members))
-			memberEmails := make(string, 0, len(members))
+			memberEmails := make([]string, 0, len(members))
 			for _, m := range members {
 				if m.Status != "ACTIVE" {
 					continue

@@ -23,7 +23,9 @@ func main() {
 		httpPort = "8000"
 	}
 
-	exporter, err := stackdriver.NewExporter(stackdriver.Options{})
+	exporter, err := stackdriver.NewExporter(stackdriver.Options{
+		DefaultTraceAttributes: map[string]interface{}{"build_rev": os.Getenv("BUILD_REV")},
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -118,6 +118,7 @@ func (s *Service) Sync(ctx context.Context) error {
 			}
 
 			cachedMembers := make([]*hubauth.CachedGroupMember, 0, len(members))
+			memberEmails := make(string, 0, len(members))
 			for _, m := range members {
 				if m.Status != "ACTIVE" {
 					continue
@@ -126,6 +127,7 @@ func (s *Service) Sync(ctx context.Context) error {
 					UserID: m.Id,
 					Email:  m.Email,
 				})
+				memberEmails = append(memberEmails, m.Email)
 			}
 
 			res, err := s.db.SetCachedGroup(ctx, &hubauth.CachedGroup{
@@ -142,6 +144,7 @@ func (s *Service) Sync(ctx context.Context) error {
 				zap.Strings("added_members", res.AddedMembers),
 				zap.Strings("deleted_members", res.DeletedMembers),
 				zap.Strings("updated_members", res.UpdatedMembers),
+				zap.Strings("member_list", memberEmails),
 				zap.Bool("updated_group", res.UpdatedGroup),
 			)
 		}()

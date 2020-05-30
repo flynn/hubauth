@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opencensus.io/plugin/ochttp"
 	"golang.org/x/exp/errors/fmt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -121,7 +122,7 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 			Delegates: ts.delegates,
 			Scope:     ts.targetScopes,
 		}
-		at, err := service.Projects.ServiceAccounts.GenerateAccessToken(name, tokenRequest).Do()
+		at, err := service.Projects.ServiceAccounts.GenerateAccessToken(name, tokenRequest).Context(ts.ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error calling iamcredentials.GenerateAccessToken: %w", err)
 		}
@@ -152,11 +153,12 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 			Delegates: []string{name},
 			Payload:   string(b),
 		}
-		jwt, err := service.Projects.ServiceAccounts.SignJwt(name, signJwtRequest).Do()
+		jwt, err := service.Projects.ServiceAccounts.SignJwt(name, signJwtRequest).Context(ts.ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error retrieving short-lived iamcredentials token: %w", err)
 		}
 		hc := oauth2.NewClient(ts.ctx, nil)
+		hc.Transport = &ochttp.Transport{Base: hc.Transport}
 		v := make(url.Values)
 		v.Set("grant_type", "assertion")
 		v.Set("assertion_type", "http://oauth.net/grant_type/jwt/1.0/bearer")

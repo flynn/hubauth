@@ -163,7 +163,10 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		v.Set("grant_type", "assertion")
 		v.Set("assertion_type", "http://oauth.net/grant_type/jwt/1.0/bearer")
 		v.Set("assertion", jwt.SignedJwt)
-		resp, err := hc.PostForm(google.JWTTokenURL, v)
+		req, _ := http.NewRequest("POST", google.JWTTokenURL, strings.NewReader(v.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req = req.WithContext(ts.ctx)
+		resp, err := hc.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: cannot exchange jwt for access token: %w", err)
 		}

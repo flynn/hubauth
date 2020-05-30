@@ -68,25 +68,30 @@ type TokenConfig struct {
 // IAMCredentials API to exchange one oauth token for an impersonated account
 // see:
 // https://cloud.google.com/iam/credentials/reference/rest/v1/projects.serviceAccounts/generateAccessToken
-func TokenSource(ctx context.Context, tokenConfig *TokenConfig) (oauth2.TokenSource, error) {
-	if tokenConfig.TokenSource == nil {
+func TokenSource(ctx context.Context, c *TokenConfig) (oauth2.TokenSource, error) {
+	if c.TokenSource == nil {
 		return nil, fmt.Errorf("impersonate: rootSource cannot be nil")
 	}
-	if tokenConfig.Lifetime > (3600 * time.Second) {
+	if c.Lifetime > (3600 * time.Second) {
 		return nil, fmt.Errorf("impersonate: lifetime must be less than or equal to 3600 seconds")
 	}
 
 	hc := oauth2.NewClient(ctx, nil)
 	hc.Transport = &ochttp.Transport{Base: hc.Transport}
 
+	iam, err := iamcredentials.NewService(ctx, option.WithTokenSource(c.TokenSource))
+	if err != nil {
+		return nil, fmt.Errorf("impersonate: error creating iamcredentials client: %w", err)
+	}
+
 	return &tokenSource{
 		httpClient:      hc,
-		rootSource:      tokenConfig.TokenSource,
-		targetPrincipal: tokenConfig.TargetPrincipal,
-		lifetime:        tokenConfig.Lifetime,
-		delegates:       tokenConfig.Delegates,
-		targetScopes:    tokenConfig.TargetScopes,
-		subject:         tokenConfig.Subject,
+		iam:             iam,
+		targetPrincipal: c.TargetPrincipal,
+		lifetime:        c.Lifetime,
+		delegates:       c.Delegates,
+		targetScopes:    c.TargetScopes,
+		subject:         c.Subject,
 		ctx:             ctx,
 	}, nil
 }
@@ -95,8 +100,8 @@ type tokenSource struct {
 	refreshMutex      sync.Mutex    // guards impersonatedToken; held while fetching or updating it.
 	impersonatedToken *oauth2.Token // Token representing the impersonated identity.
 
+	iam             *iamcredentials.Service
 	httpClient      *http.Client
-	rootSource      oauth2.TokenSource
 	targetPrincipal string
 	lifetime        time.Duration
 	delegates       []string
@@ -113,19 +118,14 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		return ts.impersonatedToken, nil
 	}
 
-	service, err := iamcredentials.NewService(ts.ctx, option.WithTokenSource(ts.rootSource))
-	if err != nil {
-		return nil, fmt.Errorf("impersonate: error creating iamcredentials client: %w", err)
-	}
 	name := "projects/-/serviceAccounts/" + ts.targetPrincipal
-
 	if ts.subject == "" {
 		tokenRequest := &iamcredentials.GenerateAccessTokenRequest{
 			Lifetime:  fmt.Sprintf("%ds", int(ts.lifetime.Seconds())),
 			Delegates: ts.delegates,
 			Scope:     ts.targetScopes,
 		}
-		at, err := service.Projects.ServiceAccounts.GenerateAccessToken(name, tokenRequest).Context(ts.ctx).Do()
+		at, err := ts.iam.Projects.ServiceAccounts.GenerateAccessToken(name, tokenRequest).Context(ts.ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error calling iamcredentials.GenerateAccessToken: %w", err)
 		}
@@ -160,7 +160,7 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 			Delegates: []string{name},
 			Payload:   string(b),
 		}
-		jwt, err := service.Projects.ServiceAccounts.SignJwt(name, signJwtRequest).Context(ts.ctx).Do()
+		jwt, err := ts.iam.Projects.ServiceAccounts.SignJwt(name, signJwtRequest).Context(ts.ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error retrieving short-lived iamcredentials token: %w", err)
 		}

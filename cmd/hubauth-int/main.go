@@ -7,6 +7,7 @@ import (
 	"os"
 
 	google_datastore "cloud.google.com/go/datastore"
+	"cloud.google.com/go/errorreporting"
 	"contrib.go.opencensus.io/exporter/stackdriver"
 	"contrib.go.opencensus.io/exporter/stackdriver/propagation"
 	"github.com/flynn/hubauth/pkg/clog"
@@ -32,11 +33,20 @@ func main() {
 	trace.RegisterExporter(exporter)
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
-	dsClient, err := google_datastore.NewClient(context.Background(), os.Getenv("PROJECT_ID"))
+	ctx := context.Background()
+	errClient, err := errorreporting.NewClient(ctx, os.Getenv("PROJECT_ID"), errorreporting.Config{
+		ServiceName:    "hubauth-ext",
+		ServiceVersion: os.Getenv("BUILD_REV"),
+	})
+	if err != nil {
+		log.Fatalf("error initializing error reporting client: %s", err)
+	}
+
+	dsClient, err := google_datastore.NewClient(ctx, os.Getenv("PROJECT_ID"))
 	if err != nil {
 		log.Fatalf("error initializing datastore client: %s", err)
 	}
-	ss := groupsync.New(datastore.New(dsClient))
+	ss := groupsync.New(datastore.New(dsClient), errClient)
 
 	http.HandleFunc("/cron", func(w http.ResponseWriter, r *http.Request) {
 		if err := ss.Sync(r.Context()); err != nil {

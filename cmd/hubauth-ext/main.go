@@ -7,6 +7,7 @@ import (
 	"os"
 
 	google_datastore "cloud.google.com/go/datastore"
+	"cloud.google.com/go/errorreporting"
 	kms "cloud.google.com/go/kms/apiv1"
 	"contrib.go.opencensus.io/exporter/stackdriver"
 	"contrib.go.opencensus.io/exporter/stackdriver/propagation"
@@ -35,6 +36,14 @@ func main() {
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
 	ctx := context.Background()
+	errClient, err := errorreporting.NewClient(ctx, os.Getenv("PROJECT_ID"), errorreporting.Config{
+		ServiceName:    "hubauth-ext",
+		ServiceVersion: os.Getenv("BUILD_REV"),
+	})
+	if err != nil {
+		log.Fatalf("error initializing error reporting client: %s", err)
+	}
+
 	dsClient, err := google_datastore.NewClient(ctx, os.Getenv("PROJECT_ID"))
 	if err != nil {
 		log.Fatalf("error initializing datastore client: %s", err)
@@ -74,6 +83,7 @@ func main() {
 				refreshKey,
 				accessKey,
 			),
+			errClient,
 			cookieKey,
 		)},
 	))

@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
+	"cloud.google.com/go/errorreporting"
 	"github.com/flynn/hubauth/pkg/clog"
+	"github.com/flynn/hubauth/pkg/errstack"
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/impersonate"
 	"go.opencensus.io/trace"
@@ -17,17 +19,29 @@ import (
 	"google.golang.org/api/option"
 )
 
-func New(db hubauth.DataStore) *Service {
-	return &Service{db: db}
+func New(db hubauth.DataStore, errClient *errorreporting.Client) *Service {
+	return &Service{db: db, errClient: errClient}
 }
 
 type Service struct {
 	db hubauth.DataStore
+
+	errClient *errorreporting.Client
 }
 
 type domainGroup struct {
 	Domain string
 	Group  string
+}
+
+func (s *Service) reportError(err error) {
+	if s.errClient == nil {
+		return
+	}
+	s.errClient.Report(errorreporting.Entry{
+		Error: err,
+		Stack: errstack.Format(err),
+	})
 }
 
 func (s *Service) Sync(ctx context.Context) error {
@@ -36,6 +50,7 @@ func (s *Service) Sync(ctx context.Context) error {
 
 	clients, err := s.db.ListClients(ctx)
 	if err != nil {
+		s.reportError(err)
 		return fmt.Errorf("groupsync: error listing clients: %w", err)
 	}
 
@@ -58,6 +73,7 @@ func (s *Service) Sync(ctx context.Context) error {
 	serviceAccountToken := google.ComputeTokenSource("", "https://www.googleapis.com/auth/iam")
 	serviceAccountEmail, err := metadata.Email("")
 	if err != nil {
+		s.reportError(err)
 		return fmt.Errorf("groupsync: error retrieving service account email: %w", err)
 	}
 	adminClients := make(map[string]*admin.Service)
@@ -84,6 +100,7 @@ func (s *Service) Sync(ctx context.Context) error {
 				ac, err = newAdminClient(ctx, apiUser, serviceAccountEmail, serviceAccountToken)
 				if err != nil {
 					l.Error("error building admin client", zap.Error(err))
+					s.reportError(err)
 					failed++
 					return
 				}
@@ -92,7 +109,8 @@ func (s *Service) Sync(ctx context.Context) error {
 
 			group, err := ac.Groups.Get(g.Group).Context(ctx).Do()
 			if err != nil {
-				l.Error("getting group", zap.Error(err))
+				l.Error("error getting group", zap.Error(err))
+				s.reportError(err)
 				failed++
 				return
 			}
@@ -106,7 +124,8 @@ func (s *Service) Sync(ctx context.Context) error {
 				}
 				res, err := req.Do()
 				if err != nil {
-					l.Error("listing members", zap.Error(err))
+					l.Error("error listing members", zap.Error(err))
+					s.reportError(err)
 					failed++
 					return
 				}
@@ -136,7 +155,8 @@ func (s *Service) Sync(ctx context.Context) error {
 				Email:   group.Email,
 			}, cachedMembers)
 			if err != nil {
-				l.Error("setting cached group", zap.Error(err))
+				l.Error("error setting cached group", zap.Error(err))
+				s.reportError(err)
 				failed++
 				return
 			}

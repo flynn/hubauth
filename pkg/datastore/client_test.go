@@ -24,14 +24,8 @@ func TestClientCRD(t *testing.T) {
 	ctx := context.Background()
 
 	c := &hubauth.Client{
-		RedirectURIs: []string{"http://localhost:8000"},
-		Policies: []*hubauth.GoogleUserPolicy{
-			{
-				Domain:  "example.com",
-				APIUser: "user@example.com",
-				Groups:  []string{"admin@example.com"},
-			},
-		},
+		RefreshTokenExpiry: 24 * time.Hour,
+		RedirectURIs:       []string{"http://localhost:8000"},
 	}
 	id, err := s.CreateClient(ctx, c)
 	require.NoError(t, err)
@@ -148,159 +142,17 @@ func TestClientMutate(t *testing.T) {
 			after:  &hubauth.Client{},
 		},
 		{
-			desc: "set policy existing",
-			mut: []*hubauth.ClientMutation{
-				{
-					Op: hubauth.ClientMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
-						Domain:  "example.com",
-						Groups:  []string{"a", "b"},
-						APIUser: "foo",
-					},
-				},
-			},
-			before: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
-					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
-				},
-			},
-			after: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
-					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
-				},
-			},
-		},
-		{
-			desc: "set policy new empty",
-			mut: []*hubauth.ClientMutation{
-				{
-					Op: hubauth.ClientMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
-						Domain:  "example.com",
-						Groups:  []string{"a", "b"},
-						APIUser: "foo",
-					},
-				},
-			},
-			before: &hubauth.Client{},
-			after: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
-				},
-			},
-		},
-		{
-			desc: "set policy new existing",
-			mut: []*hubauth.ClientMutation{
-				{
-					Op: hubauth.ClientMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
-						Domain:  "example.com",
-						Groups:  []string{"a", "b"},
-						APIUser: "foo",
-					},
-				},
-			},
-			before: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
-				},
-			},
-			after: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
-					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
-				},
-			},
-		},
-		{
-			desc: "delete policy existing",
-			mut: []*hubauth.ClientMutation{
-				{
-					Op:     hubauth.ClientMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "example.com"},
-				},
-			},
-			before: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
-					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
-				},
-			},
-			after: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
-				},
-			},
-		},
-		{
-			desc: "delete policy only",
-			mut: []*hubauth.ClientMutation{
-				{
-					Op:     hubauth.ClientMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "example.com"},
-				},
-			},
-			before: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
-				},
-			},
-			after: &hubauth.Client{},
-		},
-		{
-			desc: "delete policy nonexistent",
-			mut: []*hubauth.ClientMutation{
-				{
-					Op:     hubauth.ClientMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "a.com"},
-				},
-			},
-			before: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
-				},
-			},
-			after: &hubauth.Client{
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
-				},
-			},
-		},
-		{
-			desc: "delete policy empty",
-			mut: []*hubauth.ClientMutation{
-				{
-					Op:     hubauth.ClientMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "a.com"},
-				},
-			},
-			before: &hubauth.Client{},
-			after:  &hubauth.Client{},
-		},
-		{
 			desc: "multiple",
 			mut: []*hubauth.ClientMutation{
 				{Op: hubauth.ClientMutationOpAddRedirectURI, RedirectURI: "https://example.com"},
-				{
-					Op: hubauth.ClientMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
-						Domain:  "example.com",
-						Groups:  []string{"a", "b"},
-						APIUser: "foo",
-					},
-				},
+				{Op: hubauth.ClientMutationOpAddRedirectURI, RedirectURI: "https://1.example.com"},
+				{Op: hubauth.ClientMutationOpDeleteRedirectURI, RedirectURI: "https://b.com"},
 			},
 			before: &hubauth.Client{
 				RedirectURIs: []string{"https://a.com", "https://b.com"},
 			},
 			after: &hubauth.Client{
-				RedirectURIs: []string{"https://a.com", "https://b.com", "https://example.com"},
-				Policies: []*hubauth.GoogleUserPolicy{
-					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
-				},
+				RedirectURIs: []string{"https://a.com", "https://1.example.com", "https://example.com"},
 			},
 		},
 	}
@@ -319,9 +171,6 @@ func TestClientMutate(t *testing.T) {
 		res, err := s.GetClient(ctx, id)
 		require.NoError(t, err, tt.desc)
 		res.ID = ""
-		if len(res.Policies) == 0 {
-			res.Policies = nil
-		}
 		require.Equal(t, before.CreateTime, res.CreateTime)
 
 		res.CreateTime = time.Time{}

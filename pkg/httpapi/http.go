@@ -228,6 +228,7 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	case "authorization_code":
 		res, err = a.idp.ExchangeCode(req.Context(), &hubauth.ExchangeCodeRequest{
 			ClientID:     req.PostForm.Get("client_id"),
+			Audience:     req.PostForm.Get("audience"),
 			RedirectURI:  req.PostForm.Get("redirect_uri"),
 			Code:         req.PostForm.Get("code"),
 			CodeVerifier: req.PostForm.Get("code_verifier"),
@@ -235,6 +236,7 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	case "refresh_token":
 		res, err = a.idp.RefreshToken(req.Context(), &hubauth.RefreshTokenRequest{
 			ClientID:     req.PostForm.Get("client_id"),
+			Audience:     req.PostForm.Get("audience"),
 			RefreshToken: req.PostForm.Get("refresh_token"),
 		})
 	default:

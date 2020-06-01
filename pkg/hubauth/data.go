@@ -19,6 +19,7 @@ var (
 
 type DataStore interface {
 	ClientStore
+	ClusterStore
 	CodeStore
 	RefreshTokenStore
 	CachedGroupStore
@@ -36,9 +37,38 @@ type Client struct {
 	ID                 string
 	RedirectURIs       []string
 	RefreshTokenExpiry time.Duration
-	Policies           []*GoogleUserPolicy
 	CreateTime         time.Time
 	UpdateTime         time.Time
+}
+
+type ClientMutationOp byte
+
+const (
+	ClientMutationOpAddRedirectURI ClientMutationOp = iota
+	ClientMutationOpDeleteRedirectURI
+)
+
+type ClientMutation struct {
+	Op ClientMutationOp
+
+	RedirectURI string
+}
+
+type ClusterStore interface {
+	GetCluster(ctx context.Context, url string) (*Cluster, error)
+	CreateCluster(ctx context.Context, cluster *Cluster) error
+	MutateCluster(ctx context.Context, url string, mut []*ClusterMutation) error
+	ListClustersForClient(ctx context.Context, clientID string) ([]*Cluster, error)
+	ListClusters(ctx context.Context) ([]*Cluster, error)
+	DeleteCluster(ctx context.Context, url string) error
+}
+
+type Cluster struct {
+	URL        string
+	ClientIDs  []string
+	Policies   []*GoogleUserPolicy
+	CreateTime time.Time
+	UpdateTime time.Time
 }
 
 type GoogleUserPolicy struct {
@@ -47,19 +77,20 @@ type GoogleUserPolicy struct {
 	Groups  []string
 }
 
-type ClientMutationOp byte
+type ClusterMutationOp byte
 
 const (
-	ClientMutationOpAddRedirectURI ClientMutationOp = iota
-	ClientMutationOpDeleteRedirectURI
-	ClientMutationOpSetPolicy
-	ClientMutationOpDeletePolicy
+	ClusterMutationOpAddClientID ClusterMutationOp = iota
+	ClusterMutationOpDeleteClientID
+	ClusterMutationOpSetPolicy
+	ClusterMutationOpDeletePolicy
 )
 
-type ClientMutation struct {
-	Op          ClientMutationOp
-	RedirectURI string
-	Policy      GoogleUserPolicy
+type ClusterMutation struct {
+	Op ClusterMutationOp
+
+	ClientID string
+	Policy   GoogleUserPolicy
 }
 
 type CodeStore interface {

@@ -31,6 +31,7 @@ type AuthorizeRedirect struct {
 type ExchangeCodeRequest struct {
 	ClientID     string
 	RedirectURI  string
+	Audience     string
 	Code         string
 	CodeVerifier string
 }
@@ -50,6 +51,7 @@ type AccessToken struct {
 
 type RefreshTokenRequest struct {
 	ClientID     string
+	Audience     string
 	RefreshToken string
 }
 

@@ -2,7 +2,6 @@ package datastore
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"cloud.google.com/go/datastore"
@@ -12,14 +11,9 @@ import (
 
 func buildClient(c *hubauth.Client) *client {
 	now := time.Now()
-	policies := make([]googleUserPolicy, len(c.Policies))
-	for i, p := range c.Policies {
-		policies[i] = buildGoogleUserPolicy(p)
-	}
 	return &client{
 		RedirectURIs:       c.RedirectURIs,
 		RefreshTokenExpiry: c.RefreshTokenExpiry,
-		Policies:           policies,
 		CreateTime:         now,
 		UpdateTime:         now,
 	}
@@ -29,39 +23,15 @@ type client struct {
 	ID                 *datastore.Key `datastore:"__key__"`
 	RedirectURIs       []string
 	RefreshTokenExpiry time.Duration
-	Policies           []googleUserPolicy `datastore:",flatten"`
 	CreateTime         time.Time
 	UpdateTime         time.Time
 }
 
-func buildGoogleUserPolicy(p *hubauth.GoogleUserPolicy) googleUserPolicy {
-	return googleUserPolicy{
-		Domain:  p.Domain,
-		APIUser: p.APIUser,
-		Groups:  strings.Join(p.Groups, ","),
-	}
-}
-
-type googleUserPolicy struct {
-	Domain  string
-	APIUser string
-	Groups  string // datastore doesn't take nested lists, so encode by comma-separating
-}
-
 func (c *client) Export() *hubauth.Client {
-	policies := make([]*hubauth.GoogleUserPolicy, len(c.Policies))
-	for i, p := range c.Policies {
-		policies[i] = &hubauth.GoogleUserPolicy{
-			Domain:  p.Domain,
-			APIUser: p.APIUser,
-			Groups:  strings.Split(p.Groups, ","),
-		}
-	}
 	return &hubauth.Client{
 		ID:                 c.ID.Encode(),
 		RedirectURIs:       c.RedirectURIs,
 		RefreshTokenExpiry: c.RefreshTokenExpiry,
-		Policies:           policies,
 		CreateTime:         c.CreateTime,
 		UpdateTime:         c.UpdateTime,
 	}
@@ -133,25 +103,6 @@ func (s *service) MutateClient(ctx context.Context, id string, mut []*hubauth.Cl
 					}
 					client.RedirectURIs[i] = client.RedirectURIs[len(client.RedirectURIs)-1]
 					client.RedirectURIs = client.RedirectURIs[:len(client.RedirectURIs)-1]
-					modified = true
-				}
-			case hubauth.ClientMutationOpSetPolicy:
-				for i, p := range client.Policies {
-					if p.Domain == m.Policy.Domain {
-						client.Policies[i] = buildGoogleUserPolicy(&m.Policy)
-						modified = true
-						continue outer
-					}
-				}
-				client.Policies = append(client.Policies, buildGoogleUserPolicy(&m.Policy))
-				modified = true
-			case hubauth.ClientMutationOpDeletePolicy:
-				for i, p := range client.Policies {
-					if p.Domain != m.Policy.Domain {
-						continue
-					}
-					client.Policies[i] = client.Policies[len(client.Policies)-1]
-					client.Policies = client.Policies[:len(client.Policies)-1]
 					modified = true
 				}
 			default:

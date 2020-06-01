@@ -2,6 +2,7 @@ package groupsync
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
@@ -20,13 +21,20 @@ import (
 )
 
 func New(db hubauth.DataStore, errClient *errorreporting.Client) *Service {
-	return &Service{db: db, errClient: errClient}
+	return &Service{
+		db:           db,
+		errClient:    errClient,
+		adminClients: make(map[string]*admin.Service),
+	}
 }
 
 type Service struct {
 	db hubauth.DataStore
 
 	errClient *errorreporting.Client
+
+	mtx          sync.Mutex
+	adminClients map[string]*admin.Service
 }
 
 type domainGroup struct {
@@ -76,7 +84,6 @@ func (s *Service) Sync(ctx context.Context) error {
 		s.reportError(err)
 		return fmt.Errorf("groupsync: error retrieving service account email: %w", err)
 	}
-	adminClients := make(map[string]*admin.Service)
 
 	l := clog.Logger.With(zap.String("service_account", serviceAccountEmail))
 	l.Info("starting sync", zap.Int("group_count", len(groups)))
@@ -95,17 +102,20 @@ func (s *Service) Sync(ctx context.Context) error {
 			)
 			defer span.End()
 
-			ac, ok := adminClients[g.Domain]
+			s.mtx.Lock()
+			ac, ok := s.adminClients[g.Domain]
 			if !ok {
 				ac, err = newAdminClient(ctx, apiUser, serviceAccountEmail, serviceAccountToken)
 				if err != nil {
+					s.mtx.Unlock()
 					l.Error("error building admin client", zap.Error(err))
 					s.reportError(err)
 					failed++
 					return
 				}
-				adminClients[g.Domain] = ac
+				s.adminClients[g.Domain] = ac
 			}
+			s.mtx.Unlock()
 
 			group, err := ac.Groups.Get(g.Group).Context(ctx).Do()
 			if err != nil {

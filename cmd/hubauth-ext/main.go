@@ -65,10 +65,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("error initializing refresh key: %s", err)
 	}
-	accessKey, err := kmssign.NewKey(ctx, kmsClient, os.Getenv("ACCESS_KEY"))
-	if err != nil {
-		log.Fatalf("error initializing access key: %s", err)
-	}
 
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
 		Propagation: &propagation.HTTPFormat{},
@@ -80,8 +76,8 @@ func main() {
 					os.Getenv("BASE_URL")+"/rp/google",
 					rpKey,
 				),
+				kmsClient,
 				refreshKey,
-				accessKey,
 			),
 			errClient,
 			cookieKey,

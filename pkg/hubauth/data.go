@@ -64,11 +64,12 @@ type ClusterStore interface {
 }
 
 type Cluster struct {
-	URL        string
-	ClientIDs  []string
-	Policies   []*GoogleUserPolicy
-	CreateTime time.Time
-	UpdateTime time.Time
+	URL          string
+	TokenKeyName string
+	ClientIDs    []string
+	Policies     []*GoogleUserPolicy
+	CreateTime   time.Time
+	UpdateTime   time.Time
 }
 
 type GoogleUserPolicy struct {

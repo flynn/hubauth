@@ -15,8 +15,9 @@ func TestClusterCRD(t *testing.T) {
 	ctx := context.Background()
 
 	c := &hubauth.Cluster{
-		URL:       "https://controller.example.com",
-		ClientIDs: []string{"a"},
+		URL:          "https://controller.example.com",
+		TokenKeyName: "asfd",
+		ClientIDs:    []string{"a"},
 		Policies: []*hubauth.GoogleUserPolicy{
 			{
 				Domain:  "example.com",
@@ -60,13 +61,6 @@ func TestClusterListForClientID(t *testing.T) {
 	c1 := &hubauth.Cluster{
 		URL:       "https://controller.1.example.com",
 		ClientIDs: []string{"a", "b"},
-		Policies: []*hubauth.GoogleUserPolicy{
-			{
-				Domain:  "example.com",
-				APIUser: "user@example.com",
-				Groups:  []string{"admin@example.com"},
-			},
-		},
 	}
 	err := s.CreateCluster(ctx, c1)
 	require.NoError(t, err)
@@ -74,13 +68,6 @@ func TestClusterListForClientID(t *testing.T) {
 	c2 := &hubauth.Cluster{
 		URL:       "https://controller.2.example.com",
 		ClientIDs: []string{"b", "c"},
-		Policies: []*hubauth.GoogleUserPolicy{
-			{
-				Domain:  "b.com",
-				APIUser: "admin@b.com",
-				Groups:  []string{"ops@b.com"},
-			},
-		},
 	}
 	err = s.CreateCluster(ctx, c2)
 	require.NoError(t, err)

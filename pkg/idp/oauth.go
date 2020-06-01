@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"crypto"
 	"crypto/sha256"
 	"encoding/base64"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
 	"github.com/flynn/hubauth/pkg/signpb"
@@ -18,21 +20,21 @@ import (
 	"golang.org/x/exp/errors/fmt"
 )
 
-func New(db hubauth.DataStore, rp rp.AuthService, refreshKey, accessKey signpb.Key) hubauth.IdPService {
+func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, refreshKey signpb.Key) hubauth.IdPService {
 	return &idpService{
 		db:         db,
 		rp:         rp,
+		kms:        kms,
 		refreshKey: refreshKey,
-		accessKey:  accessKey,
 	}
 }
 
 type idpService struct {
-	db hubauth.DataStore
-	rp rp.AuthService
+	db  hubauth.DataStore
+	rp  rp.AuthService
+	kms kmssign.KMSClient
 
 	refreshKey signpb.Key
-	accessKey  signpb.Key
 }
 
 func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeRedirect, error) {
@@ -290,7 +292,12 @@ func (s *idpService) ExchangeCode(ctx context.Context, req *hubauth.ExchangeCode
 	clog.Set(ctx, zap.Int("issued_refresh_token_version", 0))
 	clog.Set(ctx, zap.Time("issued_refresh_token_expiry", rt.ExpiryTime))
 
-	accessToken, accessTokenID, err := s.signAccessToken(ctx, req.ClientID, code.UserID, code.UserEmail)
+	accessToken, accessTokenID, err := s.signAccessToken(ctx, &accessToken{
+		keyName:   cluster.TokenKeyName,
+		clientID:  req.ClientID,
+		userID:    code.UserID,
+		userEmail: code.UserEmail,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +407,12 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	clog.Set(ctx, zap.Int("issued_refresh_token_version", newToken.Version))
 	clog.Set(ctx, zap.Time("issued_refresh_token_expiry", newToken.ExpiryTime))
 
-	accessToken, accessTokenID, err := s.signAccessToken(ctx, newToken.ClientID, newToken.UserID, newToken.UserEmail)
+	accessToken, accessTokenID, err := s.signAccessToken(ctx, &accessToken{
+		keyName:   cluster.TokenKeyName,
+		clientID:  newToken.ClientID,
+		userID:    newToken.UserID,
+		userEmail: newToken.UserEmail,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -467,19 +479,27 @@ func (s *idpService) signRefreshToken(ctx context.Context, key string, version i
 
 const accessTokenDuration = 5 * time.Minute
 
-func (s *idpService) signAccessToken(ctx context.Context, clientID, userID, userEmail string) (token string, id string, err error) {
+type accessToken struct {
+	keyName   string
+	clientID  string
+	userID    string
+	userEmail string
+}
+
+func (s *idpService) signAccessToken(ctx context.Context, t *accessToken) (token string, id string, err error) {
 	exp, err := ptypes.TimestampProto(time.Now().Add(accessTokenDuration))
 	if err != nil {
 		// this should be unreachable
 		panic(err)
 	}
 	msg := &pb.AccessToken{
-		ClientId:   clientID,
-		UserId:     userID,
-		UserEmail:  userEmail,
+		ClientId:   t.clientID,
+		UserId:     t.userID,
+		UserEmail:  t.userEmail,
 		ExpireTime: exp,
 	}
-	tokenBytes, err := signpb.SignMarshal(ctx, s.accessKey, msg)
+	k := kmssign.NewPrivateKey(s.kms, t.keyName, crypto.SHA256)
+	tokenBytes, err := signpb.SignMarshal(ctx, k, msg)
 	if err != nil {
 		return "", "", fmt.Errorf("idp: error signing access token: %w", err)
 	}

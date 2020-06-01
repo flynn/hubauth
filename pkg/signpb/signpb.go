@@ -12,7 +12,16 @@ import (
 )
 
 type Key interface {
+	PublicKey
+	PrivateKey
+}
+
+type PrivateKey interface {
 	crypto.Signer
+	HashFunc() crypto.Hash
+}
+
+type PublicKey interface {
 	HashFunc() crypto.Hash
 	Verify(digest, sig []byte) bool
 }
@@ -26,7 +35,7 @@ func (o opts) Context() context.Context {
 	return o.ctx
 }
 
-func SignMarshal(ctx context.Context, k Key, msg proto.Message) ([]byte, error) {
+func SignMarshal(ctx context.Context, k PrivateKey, msg proto.Message) ([]byte, error) {
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		return nil, fmt.Errorf("signpb: error marshalling message: %w", err)
@@ -50,7 +59,7 @@ func SignMarshal(ctx context.Context, k Key, msg proto.Message) ([]byte, error) 
 
 var ErrInvalidSignature = errors.New("signpb: invalid signature")
 
-func VerifyUnmarshal(k Key, b []byte, m proto.Message) error {
+func VerifyUnmarshal(k PublicKey, b []byte, m proto.Message) error {
 	signed := &pb.SignedData{}
 	if err := proto.Unmarshal(b, signed); err != nil {
 		return ErrInvalidSignature

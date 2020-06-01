@@ -65,6 +65,10 @@ func NewKey(ctx context.Context, client KMSClient, name string) (*Key, error) {
 	return k, nil
 }
 
+func NewPrivateKey(client KMSClient, name string, hash crypto.Hash) *Key {
+	return &Key{name: name, hash: hash, c: client}
+}
+
 type Key struct {
 	name string
 	pub  *ecdsa.PublicKey

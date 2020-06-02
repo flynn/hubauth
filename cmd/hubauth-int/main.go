@@ -60,8 +60,6 @@ func main() {
 			return nil
 		})
 		g.Go(func() error {
-			ctx, span := trace.StartSpan(r.Context(), "cron.DeleteExpiredCodes")
-			defer span.End()
 			deleted, err := ds.DeleteExpiredCodes(ctx)
 			if err != nil {
 				clog.Logger.Error("delete expired codes error", zap.Error(err))
@@ -75,8 +73,6 @@ func main() {
 			return nil
 		})
 		g.Go(func() error {
-			ctx, span := trace.StartSpan(r.Context(), "cron.DeleteExpiredRefreshTokens")
-			defer span.End()
 			deleted, err := ds.DeleteExpiredRefreshTokens(ctx)
 			if err != nil {
 				clog.Logger.Error("delete expired refresh tokens error", zap.Error(err))

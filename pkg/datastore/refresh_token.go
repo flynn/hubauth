@@ -6,25 +6,42 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"go.opencensus.io/trace"
 	"golang.org/x/exp/errors/fmt"
 )
 
 func buildRefreshToken(t *hubauth.RefreshToken) (*refreshToken, error) {
-	parentKey, err := clientKey(t.ClientID)
+	code, err := codeKey(t.CodeID)
 	if err != nil {
 		return nil, err
 	}
-	codeKey, err := codeKey(t.CodeID)
-	if err != nil {
-		return nil, err
+
+	var key *datastore.Key
+	if t.ID == "" {
+		parentKey, err := clientKey(t.ClientID)
+		if err != nil {
+			return nil, err
+		}
+		key = datastore.IncompleteKey(kindRefreshToken, parentKey)
+	} else {
+		var err error
+		key, err = refreshTokenKey(t.ID)
+		if err != nil {
+			return nil, err
+		}
+		clientID := key.Parent.Encode()
+		if key.Parent.Name != t.ClientID {
+			return nil, fmt.Errorf("datastore: refresh token key client ID doesn't match (%q != %q)", clientID, t.ClientID)
+		}
 	}
+
 	now := time.Now()
 	return &refreshToken{
-		Key:         datastore.NameKey(kindRefreshToken, newRandomID(), parentKey),
+		Key:         key,
 		UserID:      t.UserID,
 		UserEmail:   t.UserEmail,
 		RedirectURI: t.RedirectURI,
-		Code:        codeKey,
+		Code:        code,
 		Version:     0,
 		CreateTime:  now,
 		RenewTime:   now,
@@ -74,6 +91,10 @@ func refreshTokenKey(id string) (*datastore.Key, error) {
 }
 
 func (s *service) GetRefreshToken(ctx context.Context, id string) (*hubauth.RefreshToken, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.GetRefreshToken")
+	span.AddAttributes(trace.StringAttribute("refresh_token_id", id))
+	defer span.End()
+
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return nil, err
@@ -88,18 +109,49 @@ func (s *service) GetRefreshToken(ctx context.Context, id string) (*hubauth.Refr
 	return res.Export(), nil
 }
 
+func (s *service) AllocateRefreshTokenID(ctx context.Context, clientID string) (string, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.AllocateRefreshTokenID")
+	defer span.End()
+
+	parentKey, err := clientKey(clientID)
+	if err != nil {
+		return "", err
+	}
+	keys, err := s.db.AllocateIDs(ctx, []*datastore.Key{datastore.IncompleteKey(kindRefreshToken, parentKey)})
+	if err != nil {
+		return "", fmt.Errorf("datastore: error allocating refresh token key: %w", err)
+	}
+	id := keys[0].Encode()
+	span.AddAttributes(trace.StringAttribute("refresh_token_id", id))
+	return id, nil
+}
+
 func (s *service) CreateRefreshToken(ctx context.Context, token *hubauth.RefreshToken) (string, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.CreateRefreshToken")
+	defer span.End()
+
 	data, err := buildRefreshToken(token)
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.db.Put(ctx, data.Key, data); err != nil {
+	key, err := s.db.Put(ctx, data.Key, data)
+	if err != nil {
 		return "", fmt.Errorf("datastore: error creating refresh token: %w", err)
 	}
-	return data.Key.Encode(), nil
+	id := key.Encode()
+	span.AddAttributes(trace.StringAttribute("refresh_token_id", id))
+	return id, nil
 }
 
 func (s *service) RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*hubauth.RefreshToken, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.RenwRefreshToken")
+	span.AddAttributes(
+		trace.StringAttribute("refresh_token_id", id),
+		trace.StringAttribute("client_id", id),
+		trace.Int64Attribute("refresh_token_version", int64(version)),
+	)
+	defer span.End()
+
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return nil, err
@@ -147,6 +199,10 @@ func (s *service) RenewRefreshToken(ctx context.Context, clientID, id string, ve
 }
 
 func (s *service) DeleteRefreshToken(ctx context.Context, id string) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteRefreshToken")
+	span.AddAttributes(trace.StringAttribute("refresh_token_id", id))
+	defer span.End()
+
 	k, err := refreshTokenKey(id)
 	if err != nil {
 		return err
@@ -158,6 +214,10 @@ func (s *service) DeleteRefreshToken(ctx context.Context, id string) error {
 }
 
 func (s *service) DeleteRefreshTokensWithCode(ctx context.Context, c string) ([]string, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteRefreshTokensWithCode")
+	span.AddAttributes(trace.StringAttribute("code_id", c))
+	defer span.End()
+
 	parsedCodeKey, err := codeKey(c)
 	if err != nil {
 		return nil, err
@@ -177,9 +237,16 @@ func (s *service) DeleteRefreshTokensWithCode(ctx context.Context, c string) ([]
 	for i, k := range keys {
 		res[i] = k.Encode()
 	}
+	span.AddAttributes(trace.Int64Attribute("refresh_tokens_deleted", int64(len(res))))
 	return res, nil
 }
 
 func (s *service) DeleteExpiredRefreshTokens(ctx context.Context) ([]string, error) {
-	return s.deleteExpired(ctx, kindRefreshToken)
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteExpiredRefreshTokens")
+	defer span.End()
+
+	res, err := s.deleteExpired(ctx, kindRefreshToken)
+	span.AddAttributes(trace.Int64Attribute("refresh_tokens_deleted", int64(len(res))))
+
+	return res, err
 }

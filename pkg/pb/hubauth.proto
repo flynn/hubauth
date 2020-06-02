@@ -18,6 +18,7 @@ message RefreshToken {
     bytes key = 1;
     uint64 version = 2;
     string user_id = 3;
+    string user_email = 4;
 }
 
 message AccessToken {

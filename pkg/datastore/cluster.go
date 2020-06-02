@@ -7,6 +7,7 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"go.opencensus.io/trace"
 	"golang.org/x/exp/errors/fmt"
 )
 
@@ -73,6 +74,10 @@ func clusterKey(url string) *datastore.Key {
 }
 
 func (s *service) GetCluster(ctx context.Context, url string) (*hubauth.Cluster, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.GetCluster")
+	span.AddAttributes(trace.StringAttribute("cluster_url", url))
+	defer span.End()
+
 	res := &cluster{}
 	if err := s.db.Get(ctx, clusterKey(url), res); err != nil {
 		if err == datastore.ErrNoSuchEntity {
@@ -84,6 +89,10 @@ func (s *service) GetCluster(ctx context.Context, url string) (*hubauth.Cluster,
 }
 
 func (s *service) CreateCluster(ctx context.Context, cluster *hubauth.Cluster) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.CreateCluster")
+	span.AddAttributes(trace.StringAttribute("cluster_url", cluster.URL))
+	defer span.End()
+
 	c := buildCluster(cluster)
 	if _, err := s.db.Put(ctx, c.Key, c); err != nil {
 		return fmt.Errorf("datastore: error creating cluster: %w", err)
@@ -92,6 +101,13 @@ func (s *service) CreateCluster(ctx context.Context, cluster *hubauth.Cluster) e
 }
 
 func (s *service) MutateCluster(ctx context.Context, url string, mut []*hubauth.ClusterMutation) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.MutateCluster")
+	span.AddAttributes(
+		trace.StringAttribute("cluster_url", url),
+		trace.Int64Attribute("cluster_mutation_count", int64(len(mut))),
+	)
+	defer span.End()
+
 	k := clusterKey(url)
 	_, err := s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
 		cluster := &cluster{}
@@ -159,6 +175,9 @@ func (s *service) MutateCluster(ctx context.Context, url string, mut []*hubauth.
 }
 
 func (s *service) ListClusters(ctx context.Context) ([]*hubauth.Cluster, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.ListClusters")
+	defer span.End()
+
 	var clusters []*cluster
 	if _, err := s.db.GetAll(ctx, datastore.NewQuery(kindCluster), &clusters); err != nil {
 		return nil, fmt.Errorf("datastore: error listing clusters: %w", err)
@@ -171,6 +190,10 @@ func (s *service) ListClusters(ctx context.Context) ([]*hubauth.Cluster, error) 
 }
 
 func (s *service) ListClustersForClient(ctx context.Context, clientID string) ([]*hubauth.Cluster, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.ListClustersForClient")
+	span.AddAttributes(trace.StringAttribute("client_id", clientID))
+	defer span.End()
+
 	var clusters []*cluster
 	if _, err := s.db.GetAll(ctx, datastore.NewQuery(kindCluster).Filter("ClientIDs =", clientID), &clusters); err != nil {
 		return nil, fmt.Errorf("datastore: error listing clusters for clientID %s: %w", clientID, err)
@@ -179,10 +202,15 @@ func (s *service) ListClustersForClient(ctx context.Context, clientID string) ([
 	for i, c := range clusters {
 		res[i] = c.Export()
 	}
+	span.AddAttributes(trace.Int64Attribute("cluster_count", int64(len(res))))
 	return res, nil
 }
 
 func (s *service) DeleteCluster(ctx context.Context, url string) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteCluster")
+	span.AddAttributes(trace.StringAttribute("cluster_url", url))
+	defer span.End()
+
 	if err := s.db.Delete(ctx, clusterKey(url)); err != nil {
 		return fmt.Errorf("datastore: error deleting cluster %s: %w", url, err)
 	}

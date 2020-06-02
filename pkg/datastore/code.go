@@ -7,6 +7,7 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"go.opencensus.io/trace"
 	"golang.org/x/exp/errors/fmt"
 )
 
@@ -16,7 +17,7 @@ func buildCode(c *hubauth.Code) (*code, error) {
 		return nil, err
 	}
 	return &code{
-		Key:           datastore.NameKey(kindCode, newRandomID(), parentKey),
+		Key:           datastore.IncompleteKey(kindCode, parentKey),
 		Secret:        newRandomID(),
 		UserID:        c.UserID,
 		UserEmail:     c.UserEmail,
@@ -70,6 +71,10 @@ func codeKey(code string) (*datastore.Key, error) {
 }
 
 func (s *service) GetCode(ctx context.Context, id string) (*hubauth.Code, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.GetCode")
+	span.AddAttributes(trace.StringAttribute("code_id", id))
+	defer span.End()
+
 	k, err := codeKey(id)
 	if err != nil {
 		return nil, err
@@ -85,6 +90,10 @@ func (s *service) GetCode(ctx context.Context, id string) (*hubauth.Code, error)
 }
 
 func (s *service) VerifyAndDeleteCode(ctx context.Context, id, secret string) (*hubauth.Code, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.VerifyAndDeleteCode")
+	span.AddAttributes(trace.StringAttribute("code_id", id))
+	defer span.End()
+
 	k, err := codeKey(id)
 	if err != nil {
 		return nil, err
@@ -110,17 +119,27 @@ func (s *service) VerifyAndDeleteCode(ctx context.Context, id, secret string) (*
 }
 
 func (s *service) CreateCode(ctx context.Context, code *hubauth.Code) (string, string, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.CreateCode")
+	defer span.End()
+
 	data, err := buildCode(code)
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := s.db.Put(ctx, data.Key, data); err != nil {
+	key, err := s.db.Put(ctx, data.Key, data)
+	if err != nil {
 		return "", "", fmt.Errorf("datastore: error creating code: %w", err)
 	}
-	return data.Key.Encode(), data.Secret, nil
+	encodedKey := key.Encode()
+	span.AddAttributes(trace.StringAttribute("code_id", encodedKey))
+	return encodedKey, data.Secret, nil
 }
 
 func (s *service) DeleteCode(ctx context.Context, code string) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteCode")
+	span.AddAttributes(trace.StringAttribute("code_id", code))
+	defer span.End()
+
 	k, err := codeKey(code)
 	if err != nil {
 		return err
@@ -132,5 +151,11 @@ func (s *service) DeleteCode(ctx context.Context, code string) error {
 }
 
 func (s *service) DeleteExpiredCodes(ctx context.Context) ([]string, error) {
-	return s.deleteExpired(ctx, kindCode)
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteExpiredCodes")
+	defer span.End()
+
+	res, err := s.deleteExpired(ctx, kindCode)
+	span.AddAttributes(trace.Int64Attribute("codes_deleted", int64(len(res))))
+
+	return res, err
 }

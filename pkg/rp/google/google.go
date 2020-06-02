@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"github.com/flynn/hubauth/pkg/rp"
 	"github.com/flynn/hubauth/pkg/signpb"
 	"github.com/golang/protobuf/ptypes"
+	"go.opencensus.io/plugin/ochttp"
+	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -22,6 +25,9 @@ import (
 
 func New(clientID, clientSecret, redirectURL string, sigKey signpb.Key) rp.AuthService {
 	return &service{
+		hc: &http.Client{
+			Transport: &ochttp.Transport{},
+		},
 		conf: &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
@@ -34,6 +40,7 @@ func New(clientID, clientSecret, redirectURL string, sigKey signpb.Key) rp.AuthS
 }
 
 type service struct {
+	hc     *http.Client
 	conf   *oauth2.Config
 	sigKey signpb.Key
 }
@@ -105,6 +112,9 @@ func (s *service) Redirect(ctx context.Context) (*rp.AuthCodeRedirect, error) {
 const codeInvalid = "invalid_request"
 
 func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token, error) {
+	ctx, span := trace.StartSpan(ctx, "google.ExchangeCode")
+	defer span.End()
+
 	if e := r.Params.Get("error"); e != "" {
 		return nil, hubauth.OAuthError{Description: r.Params.Get("error_description"), Code: e}
 	}
@@ -125,6 +135,7 @@ func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token
 		return nil, hubauth.OAuthError{Description: "missing code", Code: codeInvalid}
 	}
 
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, s.hc)
 	t, err := s.conf.Exchange(ctx, code)
 	if err != nil {
 		return nil, err
@@ -161,6 +172,10 @@ func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token
 		return nil, hubauth.OAuthError{Description: "id_token missing user", Code: codeInvalid}
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute("token_sub", idt.Sub),
+		trace.StringAttribute("token_email", idt.Email),
+	)
 	return &rp.Token{
 		Token:   t,
 		UserID:  idt.Sub,

@@ -117,6 +117,7 @@ type Code struct {
 
 type RefreshTokenStore interface {
 	GetRefreshToken(ctx context.Context, id string) (*RefreshToken, error)
+	AllocateRefreshTokenID(ctx context.Context, clientID string) (string, error)
 	CreateRefreshToken(ctx context.Context, token *RefreshToken) (string, error)
 	RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*RefreshToken, error)
 	DeleteRefreshToken(ctx context.Context, id string) error

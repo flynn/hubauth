@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"go.opencensus.io/trace"
 	"golang.org/x/exp/errors/fmt"
 )
 
@@ -49,6 +50,10 @@ func clientKey(id string) (*datastore.Key, error) {
 }
 
 func (s *service) GetClient(ctx context.Context, id string) (*hubauth.Client, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.GetClient")
+	span.AddAttributes(trace.StringAttribute("client_id", id))
+	defer span.End()
+
 	k, err := clientKey(id)
 	if err != nil {
 		return nil, err
@@ -64,14 +69,26 @@ func (s *service) GetClient(ctx context.Context, id string) (*hubauth.Client, er
 }
 
 func (s *service) CreateClient(ctx context.Context, client *hubauth.Client) (string, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.CreateClient")
+	defer span.End()
+
 	k, err := s.db.Put(ctx, datastore.IncompleteKey(kindClient, nil), buildClient(client))
 	if err != nil {
 		return "", fmt.Errorf("datastore: error creating client: %w", err)
 	}
-	return k.Encode(), nil
+	id := k.Encode()
+	span.AddAttributes(trace.StringAttribute("client_id", id))
+	return id, nil
 }
 
 func (s *service) MutateClient(ctx context.Context, id string, mut []*hubauth.ClientMutation) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.MutateClient")
+	span.AddAttributes(
+		trace.StringAttribute("client_id", id),
+		trace.Int64Attribute("client_mutation_count", int64(len(mut))),
+	)
+	defer span.End()
+
 	k, err := clientKey(id)
 	if err != nil {
 		return err
@@ -123,6 +140,9 @@ func (s *service) MutateClient(ctx context.Context, id string, mut []*hubauth.Cl
 }
 
 func (s *service) ListClients(ctx context.Context) ([]*hubauth.Client, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.ListClients")
+	defer span.End()
+
 	var clients []*client
 	if _, err := s.db.GetAll(ctx, datastore.NewQuery(kindClient), &clients); err != nil {
 		return nil, fmt.Errorf("datastore: error listing clients: %w", err)
@@ -135,6 +155,10 @@ func (s *service) ListClients(ctx context.Context) ([]*hubauth.Client, error) {
 }
 
 func (s *service) DeleteClient(ctx context.Context, id string) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteClient")
+	span.AddAttributes(trace.StringAttribute("client_id", id))
+	defer span.End()
+
 	k, err := clientKey(id)
 	if err != nil {
 		return err

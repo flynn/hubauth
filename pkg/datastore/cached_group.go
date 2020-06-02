@@ -7,6 +7,7 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"go.opencensus.io/trace"
 	"golang.org/x/exp/errors/fmt"
 )
 
@@ -36,6 +37,9 @@ type cachedGroupMember struct {
 }
 
 func (s *service) ListCachedGroups(ctx context.Context) ([]*hubauth.CachedGroup, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.ListCachedGroups")
+	defer span.End()
+
 	var data []*cachedGroup
 	if _, err := s.db.GetAll(ctx, datastore.NewQuery(kindCachedGroup), &data); err != nil {
 		return nil, fmt.Errorf("datastore: error listing cached groups: %w", err)
@@ -48,6 +52,15 @@ func (s *service) ListCachedGroups(ctx context.Context) ([]*hubauth.CachedGroup,
 }
 
 func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup, members []*hubauth.CachedGroupMember) (*hubauth.SetCachedGroupResult, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.SetCachedGroup")
+	span.AddAttributes(
+		trace.StringAttribute("group_id", group.GroupID),
+		trace.StringAttribute("group_domain", group.Domain),
+		trace.StringAttribute("group_email", group.Email),
+		trace.Int64Attribute("group_member_count", int64(len(members))),
+	)
+	defer span.End()
+
 	if len(members) > 249 {
 		return nil, fmt.Errorf("datastore: groups must not have more than 249 members")
 	}
@@ -134,10 +147,20 @@ func (s *service) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup
 	sort.Strings(res.AddedMembers)
 	sort.Strings(res.DeletedMembers)
 	sort.Strings(res.UpdatedMembers)
+	span.AddAttributes(
+		trace.Int64Attribute("group_members_added", int64(len(res.AddedMembers))),
+		trace.Int64Attribute("group_members_deleted", int64(len(res.DeletedMembers))),
+		trace.Int64Attribute("group_members_updated", int64(len(res.UpdatedMembers))),
+		trace.BoolAttribute("group_updated", res.UpdatedGroup),
+	)
 	return res, nil
 }
 
 func (s *service) GetCachedMemberGroups(ctx context.Context, userID string) ([]string, error) {
+	ctx, span := trace.StartSpan(ctx, "datastore.GetCachedMemberGroups")
+	span.AddAttributes(trace.StringAttribute("user_id", userID))
+	defer span.End()
+
 	keys, err := s.db.GetAll(
 		ctx,
 		datastore.NewQuery(kindCachedGroupMember).KeysOnly().Filter("UserID =", userID),
@@ -150,10 +173,18 @@ func (s *service) GetCachedMemberGroups(ctx context.Context, userID string) ([]s
 	for i, k := range keys {
 		res[i] = k.Parent.Name
 	}
+	span.AddAttributes(trace.Int64Attribute("group_count", int64(len(res))))
 	return res, nil
 }
 
 func (s *service) DeleteCachedGroup(ctx context.Context, domain, groupID string) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.DeleteCachedGroup")
+	span.AddAttributes(
+		trace.StringAttribute("group_id", groupID),
+		trace.StringAttribute("group_domain", domain),
+	)
+	defer span.End()
+
 	k := datastore.NameKey(kindCachedGroup, groupID, datastore.NameKey(kindDomain, domain, nil))
 	q := datastore.NewQuery(kindCachedGroupMember).Ancestor(k).KeysOnly()
 	_, err := s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {

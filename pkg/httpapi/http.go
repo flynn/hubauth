@@ -190,7 +190,7 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 		})
 		return
 	}
-	if exp.After(time.Now()) {
+	if time.Now().After(exp) {
 		a.handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "expired auth cookie",

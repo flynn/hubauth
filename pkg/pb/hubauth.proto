@@ -9,11 +9,6 @@ message SignedData {
     bytes signature = 2;
 }
 
-message Nonce {
-    bytes random = 1;
-    google.protobuf.Timestamp expire_time = 2;
-}
-
 message RefreshToken {
     bytes key = 1;
     uint64 version = 2;
@@ -21,11 +16,20 @@ message RefreshToken {
     string user_email = 4;
 }
 
+message Code {
+    bytes key = 1;
+    bytes secret = 2;
+    string user_id = 3;
+    string user_email = 4;
+    google.protobuf.Timestamp expire_time = 5;
+}
+
 message AccessToken {
     string client_id = 1;
     string user_id = 2;
     string user_email = 3;
-    google.protobuf.Timestamp expire_time = 4;
+    google.protobuf.Timestamp issue_time = 4;
+    google.protobuf.Timestamp expire_time = 5;
 }
 
 message AuthorizeCookie {
@@ -36,4 +40,5 @@ message AuthorizeCookie {
     string nonce = 5;
     string code_challenge = 6;
     string response_mode = 7;
+    google.protobuf.Timestamp expire_time = 8;
 }

@@ -8,14 +8,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/hubauth"
-	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
-	"github.com/flynn/hubauth/pkg/signpb"
-	"github.com/golang/protobuf/ptypes"
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/trace"
 	"go.uber.org/zap"
@@ -23,7 +19,7 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-func New(clientID, clientSecret, redirectURL string, sigKey signpb.Key) rp.AuthService {
+func New(clientID, clientSecret, redirectURL string) rp.AuthService {
 	return &service{
 		hc: &http.Client{
 			Transport: &ochttp.Transport{},
@@ -35,73 +31,27 @@ func New(clientID, clientSecret, redirectURL string, sigKey signpb.Key) rp.AuthS
 			RedirectURL:  redirectURL,
 			Scopes:       []string{"openid", "profile", "email"},
 		},
-		sigKey: sigKey,
 	}
 }
 
 type service struct {
-	hc     *http.Client
-	conf   *oauth2.Config
-	sigKey signpb.Key
+	hc   *http.Client
+	conf *oauth2.Config
 }
 
-const nonceExpiry = 5 * time.Minute
 const nonceRandom = 8
 
-func (s *service) newNonce(ctx context.Context) (string, error) {
-	nonce, err := genNonce(ctx, s.sigKey, time.Now().Add(nonceExpiry))
-	if err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(nonce), nil
-}
-
-func genNonce(ctx context.Context, k signpb.Key, expiry time.Time) ([]byte, error) {
-	exp, err := ptypes.TimestampProto(expiry)
-	if err != nil {
+func genNonce() string {
+	random := make([]byte, nonceRandom)
+	if _, err := io.ReadFull(rand.Reader, random); err != nil {
 		// this should be unreachable
 		panic(err)
 	}
-	n := &pb.Nonce{
-		ExpireTime: exp,
-		Random:     make([]byte, nonceRandom),
-	}
-	if _, err := io.ReadFull(rand.Reader, n.Random); err != nil {
-		// this should be unreachable
-		panic(err)
-	}
-
-	return signpb.SignMarshal(ctx, k, n)
-}
-
-func (s *service) checkNonce(n string) bool {
-	msg, err := base64.URLEncoding.DecodeString(n)
-	if err != nil {
-		return false
-	}
-
-	nonce := &pb.Nonce{}
-	if err := signpb.VerifyUnmarshal(s.sigKey, msg, nonce); err != nil {
-		return false
-	}
-
-	if len(nonce.Random) < nonceRandom {
-		// incorrect length
-		return false
-	}
-
-	exp, err := ptypes.Timestamp(nonce.ExpireTime)
-	if err != nil {
-		return false
-	}
-	return exp.After(time.Now())
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(random), "=")
 }
 
 func (s *service) Redirect(ctx context.Context) (*rp.AuthCodeRedirect, error) {
-	nonce, err := s.newNonce(ctx)
-	if err != nil {
-		return nil, err
-	}
+	nonce := genNonce()
 	u := s.conf.AuthCodeURL(nonce, oauth2.SetAuthURLParam("nonce", nonce), oauth2.SetAuthURLParam("hd", "*"))
 	return &rp.AuthCodeRedirect{
 		URL:   u,
@@ -125,9 +75,6 @@ func (s *service) Exchange(ctx context.Context, r *rp.RedirectResult) (*rp.Token
 	}
 	if r.State != nonce {
 		return nil, hubauth.OAuthError{Description: "state mismatch", Code: codeInvalid}
-	}
-	if !s.checkNonce(nonce) {
-		return nil, hubauth.OAuthError{Description: "invalid state", Code: codeInvalid}
 	}
 
 	code := r.Params.Get("code")

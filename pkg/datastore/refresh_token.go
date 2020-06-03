@@ -110,20 +110,11 @@ func (s *service) GetRefreshToken(ctx context.Context, id string) (*hubauth.Refr
 }
 
 func (s *service) AllocateRefreshTokenID(ctx context.Context, clientID string) (string, error) {
-	ctx, span := trace.StartSpan(ctx, "datastore.AllocateRefreshTokenID")
-	defer span.End()
-
 	parentKey, err := clientKey(clientID)
 	if err != nil {
 		return "", err
 	}
-	keys, err := s.db.AllocateIDs(ctx, []*datastore.Key{datastore.IncompleteKey(kindRefreshToken, parentKey)})
-	if err != nil {
-		return "", fmt.Errorf("datastore: error allocating refresh token key: %w", err)
-	}
-	id := keys[0].Encode()
-	span.AddAttributes(trace.StringAttribute("refresh_token_id", id))
-	return id, nil
+	return datastore.NameKey(kindRefreshToken, newRandomID(), parentKey).Encode(), nil
 }
 
 func (s *service) CreateRefreshToken(ctx context.Context, token *hubauth.RefreshToken) (string, error) {

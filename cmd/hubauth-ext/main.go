@@ -9,6 +9,7 @@ import (
 	google_datastore "cloud.google.com/go/datastore"
 	"cloud.google.com/go/errorreporting"
 	kms "cloud.google.com/go/kms/apiv1"
+	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"contrib.go.opencensus.io/exporter/stackdriver"
 	"contrib.go.opencensus.io/exporter/stackdriver/propagation"
 	"github.com/flynn/hubauth/pkg/datastore"
@@ -18,6 +19,7 @@ import (
 	"github.com/flynn/hubauth/pkg/rp/google"
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/trace"
+	secretmanagerpb "google.golang.org/genproto/googleapis/cloud/secretmanager/v1"
 )
 
 func main() {
@@ -53,17 +55,24 @@ func main() {
 	if err != nil {
 		log.Fatalf("error initializing kms client: %s", err)
 	}
-	cookieKey, err := kmssign.NewKey(ctx, kmsClient, os.Getenv("COOKIE_KEY"))
-	if err != nil {
-		log.Fatalf("error initializing cookie key: %s", err)
-	}
-	rpKey, err := kmssign.NewKey(ctx, kmsClient, os.Getenv("RP_KEY"))
-	if err != nil {
-		log.Fatalf("error initializing rp key: %s", err)
-	}
 	refreshKey, err := kmssign.NewKey(ctx, kmsClient, os.Getenv("REFRESH_KEY"))
 	if err != nil {
 		log.Fatalf("error initializing refresh key: %s", err)
+	}
+
+	secretsClient, err := secretmanager.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("error initializing secrets manager client: %s", err)
+	}
+	secret := func(name string) string {
+		req := &secretmanagerpb.AccessSecretVersionRequest{
+			Name: name,
+		}
+		result, err := secretsClient.AccessSecretVersion(ctx, req)
+		if err != nil {
+			log.Fatalf("failed to access secret version: %s", err)
+		}
+		return result.Payload.String()
 	}
 
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
@@ -74,13 +83,14 @@ func main() {
 					os.Getenv("RP_GOOGLE_CLIENT_ID"),
 					os.Getenv("RP_GOOGLE_CLIENT_SECRET"),
 					os.Getenv("BASE_URL")+"/rp/google",
-					rpKey,
 				),
 				kmsClient,
+				[]byte(secret(os.Getenv("CODE_KEY_SECRET"))),
 				refreshKey,
+				idp.ClusterKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
 			),
 			errClient,
-			cookieKey,
+			[]byte(secret("COOKIE_KEY_SECRET")),
 		)},
 	))
 }

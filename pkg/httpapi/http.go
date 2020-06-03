@@ -10,9 +10,10 @@ import (
 	"cloud.google.com/go/errorreporting"
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/errstack"
+	"github.com/flynn/hubauth/pkg/hmacpb"
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/pb"
-	"github.com/flynn/hubauth/pkg/signpb"
+	"github.com/golang/protobuf/ptypes"
 	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -20,7 +21,7 @@ import (
 
 const authCookie = "hubauth_authorize"
 
-func New(idp hubauth.IdPService, errClient *errorreporting.Client, cookieKey signpb.Key) http.Handler {
+func New(idp hubauth.IdPService, errClient *errorreporting.Client, cookieKey hmacpb.Key) http.Handler {
 	return &api{
 		idp:       idp,
 		errClient: errClient,
@@ -31,7 +32,7 @@ func New(idp hubauth.IdPService, errClient *errorreporting.Client, cookieKey sig
 type api struct {
 	idp       hubauth.IdPService
 	errClient *errorreporting.Client
-	key       signpb.Key
+	key       hmacpb.Key
 }
 
 type loggingResponseWriter struct {
@@ -88,6 +89,8 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	clog.Log(ctx, "request")
 }
 
+const cookieExpiry = 5 * time.Minute
+
 func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 	req = req.WithContext(hubauth.InitClientInfo(req.Context()))
 	params := req.URL.Query()
@@ -123,6 +126,8 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	expiry, _ := ptypes.TimestampProto(time.Now().Add(cookieExpiry))
+
 	cookieData := &pb.AuthorizeCookie{
 		RpState:       res.RPState,
 		ClientState:   authReq.ClientState,
@@ -131,8 +136,9 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 		Nonce:         authReq.Nonce,
 		CodeChallenge: authReq.CodeChallenge,
 		ResponseMode:  authReq.ResponseMode,
+		ExpireTime:    expiry,
 	}
-	signedCookie, err := signpb.SignMarshal(req.Context(), a.key, cookieData)
+	signedCookie, err := hmacpb.SignMarshal(a.key, cookieData)
 	if err != nil {
 		a.handleErr(w, req, err)
 		return
@@ -169,10 +175,25 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 		})
 		return
 	}
-	if err := signpb.VerifyUnmarshal(a.key, cookieBytes, data); err != nil {
+	if err := hmacpb.VerifyUnmarshal(a.key, cookieBytes, data); err != nil {
 		a.handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "invalid auth cookie",
+		})
+		return
+	}
+	exp, err := ptypes.Timestamp(data.ExpireTime)
+	if err != nil {
+		a.handleErr(w, req, &hubauth.OAuthError{
+			Code:        "invalid_request",
+			Description: "invalid auth cookie expiry",
+		})
+		return
+	}
+	if exp.After(time.Now()) {
+		a.handleErr(w, req, &hubauth.OAuthError{
+			Code:        "invalid_request",
+			Description: "expired auth cookie",
 		})
 		return
 	}

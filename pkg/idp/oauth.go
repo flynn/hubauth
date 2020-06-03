@@ -5,10 +5,12 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"encoding/base64"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/flynn/hubauth/pkg/clog"
+	"github.com/flynn/hubauth/pkg/hmacpb"
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/pb"
@@ -22,11 +24,24 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, refreshKey signpb.Key) hubauth.IdPService {
+type ClusterKeyNamer func(audience string) string
+
+func ClusterKeyNameFunc(projectID, location, keyRing string) func(string) string {
+	return func(aud string) string {
+		u, err := url.Parse(aud)
+		if err != nil {
+			return ""
+		}
+		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, u.Host)
+	}
+}
+
+func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, codeKey hmacpb.Key, refreshKey signpb.Key, clusterKey ClusterKeyNamer) hubauth.IdPService {
 	return &idpService{
 		db:         db,
 		rp:         rp,
 		kms:        kms,
+		codeKey:    codeKey,
 		refreshKey: refreshKey,
 	}
 }
@@ -36,7 +51,9 @@ type idpService struct {
 	rp  rp.AuthService
 	kms kmssign.KMSClient
 
+	codeKey    hmacpb.Key
 	refreshKey signpb.Key
+	clusterKey ClusterKeyNamer
 }
 
 func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeRedirect, error) {
@@ -142,7 +159,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		return nil
 	})
 
-	codeData := &hubauth.Code{
+	code := &hubauth.Code{
 		ClientID:      req.ClientID,
 		UserID:        token.UserID,
 		UserEmail:     token.Email,
@@ -154,7 +171,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 	var codeID, codeSecret string
 	g.Go(func() error {
 		var err error
-		codeID, codeSecret, err = s.db.CreateCode(ctx, codeData)
+		codeID, codeSecret, err = s.db.CreateCode(ctx, code)
 		if err != nil {
 			return fmt.Errorf("idp: error creating code: %w", err)
 		}
@@ -165,10 +182,20 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		return nil, err
 	}
 
+	codeRes, err := s.signCode(&codeData{
+		Key:       codeID,
+		Secret:    codeSecret,
+		UserID:    token.UserID,
+		UserEmail: token.Email,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	clog.Set(ctx, zap.String("issued_code_id", codeID))
-	clog.Set(ctx, zap.Time("issued_code_expiry", codeData.ExpiryTime))
+	clog.Set(ctx, zap.Time("issued_code_expiry", code.ExpiryTime))
 	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == "fragment", map[string]string{
-		"code":  codeID + "." + codeSecret,
+		"code":  codeRes,
 		"state": req.ClientState,
 	})
 	if dest == "" {
@@ -179,18 +206,32 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 }
 
 func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
-	splitCode := strings.SplitN(req.Code, ".", 2)
-	if len(splitCode) != 2 {
+	codeBytes, err := base64.URLEncoding.DecodeString(padBase64(req.Code))
+	if err != nil {
+		return nil, &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "invalid code encoding",
+		}
+	}
+	codeInfo := &pb.Code{}
+	if err := hmacpb.VerifyUnmarshal(s.codeKey, codeBytes, codeInfo); err != nil {
 		return nil, &hubauth.OAuthError{
 			Code:        "invalid_grant",
 			Description: "invalid code",
 		}
 	}
+	codeID := strings.TrimRight(base64.URLEncoding.EncodeToString(codeInfo.Key), "=")
+	codeSecret := strings.TrimRight(base64.URLEncoding.EncodeToString(codeInfo.Secret), "=")
 
 	g, ctx := errgroup.WithContext(parentCtx)
 
+	rtID, err := s.db.AllocateRefreshTokenID(ctx, req.ClientID)
+	if err != nil {
+		return nil, fmt.Errorf("idp: error allocating refresh token ID: %w", err)
+	}
+
 	g.Go(func() error {
-		deleted, err := s.db.DeleteRefreshTokensWithCode(ctx, splitCode[0])
+		deleted, err := s.db.DeleteRefreshTokensWithCode(ctx, codeID)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrNotFound) {
 				return &hubauth.OAuthError{
@@ -213,7 +254,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 	var code *hubauth.Code
 	g.Go(func() error {
 		var err error
-		code, err = s.db.VerifyAndDeleteCode(ctx, splitCode[0], splitCode[1])
+		code, err = s.db.VerifyAndDeleteCode(ctx, codeID, codeSecret)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrIncorrectCodeSecret) || errors.Is(err, hubauth.ErrNotFound) {
 				return &hubauth.OAuthError{
@@ -221,7 +262,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 					Description: "malformed or incorrect code",
 				}
 			}
-			return fmt.Errorf("idp: error verifying and deleting code %s: %w", splitCode[0], err)
+			return fmt.Errorf("idp: error verifying and deleting code %s: %w", codeID, err)
 		}
 		clog.Set(ctx, zap.String("code_user_id", code.UserID))
 		clog.Set(ctx, zap.String("code_user_email", code.UserEmail))
@@ -239,29 +280,23 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 				Description: "redirect_uri mismatch",
 			}
 		}
-		return nil
-	})
 
-	var client *hubauth.Client
-	g.Go(func() error {
-		var err error
-		client, err = s.db.GetClient(ctx, req.ClientID)
-		if err != nil {
-			if errors.Is(err, hubauth.ErrNotFound) {
-				return &hubauth.OAuthError{
-					Code:        "invalid_client",
-					Description: "unknown client",
-				}
+		chall := sha256.Sum256([]byte(req.CodeVerifier))
+		challenge := strings.TrimRight(base64.URLEncoding.EncodeToString(chall[:]), "=")
+		if code.PKCEChallenge != challenge {
+			clog.Set(ctx, zap.String("code_challenge", code.PKCEChallenge))
+			clog.Set(ctx, zap.String("expected_challenge", challenge))
+			return &hubauth.OAuthError{
+				Code:        "invalid_request",
+				Description: "code_verifier mismatch",
 			}
-			return fmt.Errorf("idp: error getting client %s: %w", req.ClientID, err)
 		}
+
 		return nil
 	})
 
-	var cluster *hubauth.Cluster
 	g.Go(func() error {
-		var err error
-		cluster, err = s.db.GetCluster(ctx, req.Audience)
+		cluster, err := s.db.GetCluster(ctx, req.Audience)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrNotFound) {
 				return &hubauth.OAuthError{
@@ -284,35 +319,8 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 				Description: "unknown client for audience",
 			}
 		}
-		return nil
-	})
 
-	var rtID string
-	g.Go(func() error {
-		var err error
-		rtID, err = s.db.AllocateRefreshTokenID(ctx, req.ClientID)
-		return err
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	chall := sha256.Sum256([]byte(req.CodeVerifier))
-	challenge := strings.TrimRight(base64.URLEncoding.EncodeToString(chall[:]), "=")
-	if code.PKCEChallenge != challenge {
-		clog.Set(ctx, zap.String("code_challenge", code.PKCEChallenge))
-		clog.Set(ctx, zap.String("expected_challenge", challenge))
-		return nil, &hubauth.OAuthError{
-			Code:        "invalid_request",
-			Description: "code_verifier mismatch",
-		}
-	}
-
-	g, ctx = errgroup.WithContext(parentCtx)
-
-	g.Go(func() error {
-		err := s.checkUser(ctx, cluster, code.UserID)
+		err = s.checkUser(ctx, cluster, codeInfo.UserId)
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return &hubauth.OAuthError{
 				Code:        "invalid_grant",
@@ -322,20 +330,32 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		return err
 	})
 
+	var client *hubauth.Client
 	g.Go(func() error {
 		var err error
+		client, err = s.db.GetClient(ctx, req.ClientID)
+		if err != nil {
+			if errors.Is(err, hubauth.ErrNotFound) {
+				return &hubauth.OAuthError{
+					Code:        "invalid_client",
+					Description: "unknown client",
+				}
+			}
+			return fmt.Errorf("idp: error getting client %s: %w", req.ClientID, err)
+		}
+
 		rt := &hubauth.RefreshToken{
 			ID:          rtID,
 			ClientID:    req.ClientID,
-			UserID:      code.UserID,
-			UserEmail:   code.UserEmail,
+			UserID:      codeInfo.UserId,
+			UserEmail:   codeInfo.UserEmail,
 			RedirectURI: req.RedirectURI,
-			CodeID:      splitCode[0],
+			CodeID:      codeID,
 			ExpiryTime:  time.Now().Add(client.RefreshTokenExpiry),
 		}
 		_, err = s.db.CreateRefreshToken(ctx, rt)
 		if err != nil {
-			return fmt.Errorf("idp: error creating refresh token for code %s: %w", splitCode[0], err)
+			return fmt.Errorf("idp: error creating refresh token for code %s: %w", codeID, err)
 		}
 		clog.Set(ctx, zap.Time("issued_refresh_token_expiry", rt.ExpiryTime))
 		clog.Set(ctx, zap.String("issued_refresh_token_id", rt.ID))
@@ -349,8 +369,8 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		refreshToken, err = s.signRefreshToken(ctx, &refreshTokenData{
 			Key:       rtID,
 			Version:   0,
-			UserID:    code.UserID,
-			UserEmail: code.UserEmail,
+			UserID:    codeInfo.UserId,
+			UserEmail: codeInfo.UserEmail,
 		})
 		return err
 	})
@@ -360,10 +380,10 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		var err error
 		var accessTokenID string
 		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
-			keyName:   cluster.TokenKeyName,
+			keyName:   s.clusterKey(req.Audience),
 			clientID:  req.ClientID,
-			userID:    code.UserID,
-			userEmail: code.UserEmail,
+			userID:    codeInfo.UserId,
+			userEmail: codeInfo.UserEmail,
 		})
 		if err != nil {
 			return err
@@ -411,33 +431,33 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	clog.Set(ctx, zap.String("refresh_token_user_id", oldToken.UserId))
 	clog.Set(ctx, zap.String("refresh_token_user_email", oldToken.UserEmail))
 
-	cluster, err := s.db.GetCluster(ctx, req.Audience)
-	if err != nil {
-		if errors.Is(err, hubauth.ErrNotFound) {
-			return nil, &hubauth.OAuthError{
-				Code:        "invalid_request",
-				Description: "unknown audience",
-			}
-		}
-		return nil, fmt.Errorf("idp: error getting cluster %s: %w", req.Audience, err)
-	}
-	foundClient := false
-	for _, c := range cluster.ClientIDs {
-		if req.ClientID == c {
-			foundClient = true
-			break
-		}
-	}
-	if !foundClient {
-		return nil, &hubauth.OAuthError{
-			Code:        "invalid_client",
-			Description: "unknown client for audience",
-		}
-	}
-
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
+		cluster, err := s.db.GetCluster(ctx, req.Audience)
+		if err != nil {
+			if errors.Is(err, hubauth.ErrNotFound) {
+				return &hubauth.OAuthError{
+					Code:        "invalid_request",
+					Description: "unknown audience",
+				}
+			}
+			return fmt.Errorf("idp: error getting cluster %s: %w", req.Audience, err)
+		}
+		foundClient := false
+		for _, c := range cluster.ClientIDs {
+			if req.ClientID == c {
+				foundClient = true
+				break
+			}
+		}
+		if !foundClient {
+			return &hubauth.OAuthError{
+				Code:        "invalid_client",
+				Description: "unknown client for audience",
+			}
+		}
+
 		s.checkUser(ctx, cluster, oldToken.UserId)
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return &hubauth.OAuthError{
@@ -499,7 +519,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	g.Go(func() error {
 		var err error
 		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
-			keyName:   cluster.TokenKeyName,
+			keyName:   s.clusterKey(req.Audience),
 			clientID:  req.ClientID,
 			userID:    oldToken.UserId,
 			userEmail: oldToken.UserEmail,
@@ -553,6 +573,36 @@ outer:
 	return nil
 }
 
+type codeData struct {
+	Key       string
+	Secret    string
+	UserID    string
+	UserEmail string
+}
+
+func (s *idpService) signCode(code *codeData) (string, error) {
+	keyBytes, err := base64.URLEncoding.DecodeString(padBase64(code.Key))
+	if err != nil {
+		return "", fmt.Errorf("idp: error decoding key secret: %w", err)
+	}
+
+	secretBytes, err := base64.URLEncoding.DecodeString(padBase64(code.Secret))
+	if err != nil {
+		return "", fmt.Errorf("idp: error decoding code secret: %w", err)
+	}
+
+	res, err := hmacpb.SignMarshal(s.codeKey, &pb.Code{
+		Key:       keyBytes,
+		Secret:    secretBytes,
+		UserId:    code.UserID,
+		UserEmail: code.UserEmail,
+	})
+	if err != nil {
+		return "", fmt.Errorf("idp: error encoding signing code: %w", err)
+	}
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(res), "="), nil
+}
+
 type refreshTokenData struct {
 	Key       string
 	Version   int
@@ -569,11 +619,7 @@ func (s *idpService) signRefreshToken(ctx context.Context, t *refreshTokenData) 
 	)
 	defer span.End()
 
-	if m := len(t.Key) % 4; m != 0 {
-		t.Key += strings.Repeat("=", 4-m)
-	}
-	keyBytes, err := base64.URLEncoding.DecodeString(t.Key)
-
+	keyBytes, err := base64.URLEncoding.DecodeString(padBase64(t.Key))
 	if err != nil {
 		return "", fmt.Errorf("idp: error decoding refresh token key %q: %w", t.Key, err)
 	}
@@ -609,7 +655,13 @@ func (s *idpService) signAccessToken(ctx context.Context, t *accessTokenData) (t
 	)
 	defer span.End()
 
-	exp, err := ptypes.TimestampProto(time.Now().Add(accessTokenDuration))
+	now := time.Now()
+	exp, err := ptypes.TimestampProto(now.Add(accessTokenDuration))
+	if err != nil {
+		// this should be unreachable
+		panic(err)
+	}
+	iss, err := ptypes.TimestampProto(now)
 	if err != nil {
 		// this should be unreachable
 		panic(err)
@@ -618,6 +670,7 @@ func (s *idpService) signAccessToken(ctx context.Context, t *accessTokenData) (t
 		ClientId:   t.clientID,
 		UserId:     t.userID,
 		UserEmail:  t.userEmail,
+		IssueTime:  iss,
 		ExpireTime: exp,
 	}
 	k := kmssign.NewPrivateKey(s.kms, t.keyName, crypto.SHA256)
@@ -631,4 +684,11 @@ func (s *idpService) signAccessToken(ctx context.Context, t *accessTokenData) (t
 	id = base64.URLEncoding.EncodeToString(idBytes[:])
 	span.AddAttributes(trace.StringAttribute("access_token_id", id))
 	return token, id, nil
+}
+
+func padBase64(s string) string {
+	if m := len(s) % 4; m != 0 {
+		s += strings.Repeat("=", 4-m)
+	}
+	return s
 }

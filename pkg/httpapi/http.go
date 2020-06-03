@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/errorreporting"
@@ -244,14 +245,14 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	clog.Set(req.Context(), zap.Object("params", zapURLValuesMarshaler{req.PostForm}))
 
 	audURL, err := url.Parse(req.PostForm.Get("audience"))
-	if err != nil || audURL.Scheme != "https" || audURL.Path != "" {
+	if err != nil || audURL.Scheme != "https" || audURL.Path != "" || audURL.Host == "" {
 		a.handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "invalid audience",
 		})
 		return
 	}
-	aud := "https://" + audURL.Host
+	aud := "https://" + strings.SplitN(audURL.Host, ":", 2)[0]
 
 	var res *hubauth.AccessToken
 	switch req.Form.Get("grant_type") {

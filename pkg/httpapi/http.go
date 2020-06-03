@@ -254,6 +254,14 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	}
 	aud := "https://" + strings.SplitN(audURL.Host, ":", 2)[0]
 
+	if req.PostForm.Get("client_id") == "" {
+		a.handleErr(w, req, &hubauth.OAuthError{
+			Code:        "invalid_request",
+			Description: "missing client_id",
+		})
+		return
+	}
+
 	var res *hubauth.AccessToken
 	switch req.Form.Get("grant_type") {
 	case "authorization_code":

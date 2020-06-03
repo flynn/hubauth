@@ -315,6 +315,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			}
 		}
 		if !foundClient {
+			clog.Set(ctx, zap.Strings("cluster_client_ids", cluster.ClientIDs))
 			return &hubauth.OAuthError{
 				Code:        "invalid_client",
 				Description: "unknown client for audience",
@@ -409,6 +410,10 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 	}, nil
 }
 
+func rpcError(err error) {
+
+}
+
 func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.AccessToken, error) {
 	tokenMsg, err := base64.URLEncoding.DecodeString(req.RefreshToken)
 	if err != nil {
@@ -453,13 +458,14 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			}
 		}
 		if !foundClient {
+			clog.Set(ctx, zap.Strings("cluster_client_ids", cluster.ClientIDs))
 			return &hubauth.OAuthError{
 				Code:        "invalid_client",
 				Description: "unknown client for audience",
 			}
 		}
 
-		s.checkUser(ctx, cluster, oldToken.UserId)
+		err = s.checkUser(ctx, cluster, oldToken.UserId)
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return &hubauth.OAuthError{
 				Code:        "invalid_grant",

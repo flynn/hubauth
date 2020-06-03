@@ -66,7 +66,7 @@ func main() {
 	}
 	secret := func(name string) string {
 		req := &secretmanagerpb.AccessSecretVersionRequest{
-			Name: name,
+			Name: os.Getenv(name),
 		}
 		result, err := secretsClient.AccessSecretVersion(ctx, req)
 		if err != nil {
@@ -85,7 +85,7 @@ func main() {
 					os.Getenv("BASE_URL")+"/rp/google",
 				),
 				kmsClient,
-				[]byte(secret(os.Getenv("CODE_KEY_SECRET"))),
+				[]byte(secret("CODE_KEY_SECRET")),
 				refreshKey,
 				idp.ClusterKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
 			),

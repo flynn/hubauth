@@ -43,6 +43,7 @@ func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, codeKey
 		kms:        kms,
 		codeKey:    codeKey,
 		refreshKey: refreshKey,
+		clusterKey: clusterKey,
 	}
 }
 

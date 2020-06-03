@@ -52,9 +52,10 @@ func main() {
 	ss := groupsync.New(ds, errClient)
 
 	http.HandleFunc("/cron", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		g := &errgroup.Group{}
 		g.Go(func() error {
-			if err := ss.Sync(r.Context()); err != nil {
+			if err := ss.Sync(ctx); err != nil {
 				clog.Logger.Error("group sync error", zap.Error(err))
 			}
 			return nil

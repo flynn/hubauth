@@ -243,13 +243,22 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 
 	clog.Set(req.Context(), zap.Object("params", zapURLValuesMarshaler{req.PostForm}))
 
+	audURL, err := url.Parse(req.PostForm.Get("audience"))
+	if err != nil || audURL.Scheme != "https" || audURL.Path != "" {
+		a.handleErr(w, req, &hubauth.OAuthError{
+			Code:        "invalid_request",
+			Description: "invalid audience",
+		})
+		return
+	}
+	aud := "https://" + audURL.Host
+
 	var res *hubauth.AccessToken
-	var err error
 	switch req.Form.Get("grant_type") {
 	case "authorization_code":
 		res, err = a.idp.ExchangeCode(req.Context(), &hubauth.ExchangeCodeRequest{
 			ClientID:     req.PostForm.Get("client_id"),
-			Audience:     req.PostForm.Get("audience"),
+			Audience:     aud,
 			RedirectURI:  req.PostForm.Get("redirect_uri"),
 			Code:         req.PostForm.Get("code"),
 			CodeVerifier: req.PostForm.Get("code_verifier"),
@@ -257,7 +266,7 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	case "refresh_token":
 		res, err = a.idp.RefreshToken(req.Context(), &hubauth.RefreshTokenRequest{
 			ClientID:     req.PostForm.Get("client_id"),
-			Audience:     req.PostForm.Get("audience"),
+			Audience:     aud,
 			RefreshToken: req.PostForm.Get("refresh_token"),
 		})
 	default:

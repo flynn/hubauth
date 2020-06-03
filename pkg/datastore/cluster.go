@@ -18,22 +18,20 @@ func buildCluster(c *hubauth.Cluster) *cluster {
 		policies[i] = buildGoogleUserPolicy(p)
 	}
 	return &cluster{
-		Key:          clusterKey(c.URL),
-		TokenKeyName: c.TokenKeyName,
-		ClientIDs:    c.ClientIDs,
-		Policies:     policies,
-		CreateTime:   now,
-		UpdateTime:   now,
+		Key:        clusterKey(c.URL),
+		ClientIDs:  c.ClientIDs,
+		Policies:   policies,
+		CreateTime: now,
+		UpdateTime: now,
 	}
 }
 
 type cluster struct {
-	Key          *datastore.Key `datastore:"__key__"`
-	TokenKeyName string
-	ClientIDs    []string
-	Policies     []googleUserPolicy `datastore:",flatten"`
-	CreateTime   time.Time
-	UpdateTime   time.Time
+	Key        *datastore.Key `datastore:"__key__"`
+	ClientIDs  []string
+	Policies   []googleUserPolicy `datastore:",flatten"`
+	CreateTime time.Time
+	UpdateTime time.Time
 }
 
 func buildGoogleUserPolicy(p *hubauth.GoogleUserPolicy) googleUserPolicy {
@@ -60,12 +58,11 @@ func (c *cluster) Export() *hubauth.Cluster {
 		}
 	}
 	return &hubauth.Cluster{
-		URL:          c.Key.Name,
-		TokenKeyName: c.TokenKeyName,
-		ClientIDs:    c.ClientIDs,
-		Policies:     policies,
-		CreateTime:   c.CreateTime,
-		UpdateTime:   c.UpdateTime,
+		URL:        c.Key.Name,
+		ClientIDs:  c.ClientIDs,
+		Policies:   policies,
+		CreateTime: c.CreateTime,
+		UpdateTime: c.UpdateTime,
 	}
 }
 

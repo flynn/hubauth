@@ -32,7 +32,7 @@ func ClusterKeyNameFunc(projectID, location, keyRing string) func(string) string
 		if err != nil {
 			return ""
 		}
-		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, u.Host)
+		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1))
 	}
 }
 

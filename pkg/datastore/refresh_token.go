@@ -135,7 +135,7 @@ func (s *service) CreateRefreshToken(ctx context.Context, token *hubauth.Refresh
 }
 
 func (s *service) RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*hubauth.RefreshToken, error) {
-	ctx, span := trace.StartSpan(ctx, "datastore.RenwRefreshToken")
+	ctx, span := trace.StartSpan(ctx, "datastore.RenewRefreshToken")
 	span.AddAttributes(
 		trace.StringAttribute("refresh_token_id", id),
 		trace.StringAttribute("client_id", id),

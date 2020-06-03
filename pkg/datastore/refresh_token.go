@@ -30,7 +30,7 @@ func buildRefreshToken(t *hubauth.RefreshToken) (*refreshToken, error) {
 			return nil, err
 		}
 		clientID := key.Parent.Encode()
-		if key.Parent.Name != t.ClientID {
+		if clientID != t.ClientID {
 			return nil, fmt.Errorf("datastore: refresh token key client ID doesn't match (%q != %q)", clientID, t.ClientID)
 		}
 	}

@@ -15,9 +15,8 @@ func TestClusterCRD(t *testing.T) {
 	ctx := context.Background()
 
 	c := &hubauth.Cluster{
-		URL:          "https://controller.example.com",
-		TokenKeyName: "asfd",
-		ClientIDs:    []string{"a"},
+		URL:       "https://controller.example.com",
+		ClientIDs: []string{"a"},
 		Policies: []*hubauth.GoogleUserPolicy{
 			{
 				Domain:  "example.com",

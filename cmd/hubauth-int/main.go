@@ -2,17 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	google_datastore "cloud.google.com/go/datastore"
-	"cloud.google.com/go/errorreporting"
 	"contrib.go.opencensus.io/exporter/stackdriver"
 	"contrib.go.opencensus.io/exporter/stackdriver/propagation"
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/datastore"
-	"github.com/flynn/hubauth/pkg/errstack"
 	"github.com/flynn/hubauth/pkg/groupsync"
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/trace"
@@ -35,39 +34,31 @@ func main() {
 	trace.RegisterExporter(exporter)
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.ProbabilitySampler(0.1)})
 
-	ctx := context.Background()
-	errClient, err := errorreporting.NewClient(ctx, os.Getenv("PROJECT_ID"), errorreporting.Config{
-		ServiceName:    "hubauth-int",
-		ServiceVersion: os.Getenv("BUILD_REV"),
-	})
-	if err != nil {
-		log.Fatalf("error initializing error reporting client: %s", err)
-	}
-
-	dsClient, err := google_datastore.NewClient(ctx, os.Getenv("PROJECT_ID"))
+	dsClient, err := google_datastore.NewClient(context.Background(), os.Getenv("PROJECT_ID"))
 	if err != nil {
 		log.Fatalf("error initializing datastore client: %s", err)
 	}
 	ds := datastore.New(dsClient)
-	ss := groupsync.New(ds, errClient)
+
+	errInfo := &clog.ErrInfo{
+		Repository: fmt.Sprintf("https://source.developers.google.com/p/%s/r/%s", os.Getenv("PROJECT_ID"), os.Getenv("BUILD_REPO")),
+		Revision:   os.Getenv("BUILD_REV"),
+	}
+	ss := groupsync.New(ds, errInfo)
 
 	http.HandleFunc("/cron", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		g := &errgroup.Group{}
 		g.Go(func() error {
 			if err := ss.Sync(ctx); err != nil {
-				clog.Logger.Error("group sync error", zap.Error(err))
+				clog.ErrorWithLogger(clog.Logger, err, errInfo)
 			}
 			return nil
 		})
 		g.Go(func() error {
 			deleted, err := ds.DeleteExpiredCodes(ctx)
 			if err != nil {
-				clog.Logger.Error("delete expired codes error", zap.Error(err))
-				errClient.Report(errorreporting.Entry{
-					Error: err,
-					Stack: errstack.Format(err),
-				})
+				clog.ErrorWithLogger(clog.Logger, err, errInfo)
 			} else if len(deleted) > 0 {
 				clog.Logger.Info("deleted expired codes", zap.Strings("code_ids", deleted))
 			}
@@ -76,11 +67,7 @@ func main() {
 		g.Go(func() error {
 			deleted, err := ds.DeleteExpiredRefreshTokens(ctx)
 			if err != nil {
-				clog.Logger.Error("delete expired refresh tokens error", zap.Error(err))
-				errClient.Report(errorreporting.Entry{
-					Error: err,
-					Stack: errstack.Format(err),
-				})
+				clog.ErrorWithLogger(clog.Logger, err, errInfo)
 			} else if len(deleted) > 0 {
 				clog.Logger.Info("deleted expired refresh tokens", zap.Strings("refresh_token_ids", deleted))
 			}

@@ -8,9 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/errorreporting"
 	"github.com/flynn/hubauth/pkg/clog"
-	"github.com/flynn/hubauth/pkg/errstack"
 	"github.com/flynn/hubauth/pkg/hmacpb"
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/pb"
@@ -18,32 +16,40 @@ import (
 	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/exp/errors/fmt"
 )
 
 const authCookie = "hubauth_authorize"
 
-func New(idp hubauth.IdPService, errClient *errorreporting.Client, cookieKey hmacpb.Key) http.Handler {
-	return &api{
-		idp:       idp,
-		errClient: errClient,
-		key:       cookieKey,
-	}
+type Config struct {
+	IdP        hubauth.IdPService
+	CookieKey  hmacpb.Key
+	ProjectID  string
+	Repository string
+	Revision   string
+}
+
+func New(conf Config) http.Handler {
+	return &api{conf}
 }
 
 type api struct {
-	idp       hubauth.IdPService
-	errClient *errorreporting.Client
-	key       hmacpb.Key
+	Config
 }
 
 type loggingResponseWriter struct {
 	http.ResponseWriter
 	status int
+	err    error
 }
 
 func (l *loggingResponseWriter) WriteHeader(status int) {
 	l.status = status
 	l.ResponseWriter.WriteHeader(status)
+}
+
+func (l *loggingResponseWriter) SetErr(err error) {
+	l.err = err
 }
 
 func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -76,6 +82,12 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		w.status = 200
 	}
 
+	traceHeader := req.Header.Get("X-Cloud-Trace-Context")
+	traceParts := strings.Split(traceHeader, "/")
+	if len(traceParts) > 0 && len(traceParts[0]) > 0 {
+		clog.Set(ctx, zap.String("logging.googleapis.com/trace", fmt.Sprintf("projects/%s/traces/%s", a.ProjectID, traceParts[0])))
+	}
+
 	clog.Set(ctx,
 		zap.String("request_path", req.URL.Path),
 		zap.String("request_method", req.Method),
@@ -89,7 +101,16 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	clog.Set(ctx, zap.Duration("response_duration", duration))
 
-	clog.Log(ctx, "request")
+	if w.status >= 500 && w.status <= 599 {
+		clog.Error(ctx, w.err, &clog.ErrInfo{
+			Request:      req,
+			ResponseCode: w.status,
+			Revision:     a.Revision,
+			Repository:   a.Repository,
+		})
+	} else {
+		clog.Log(ctx, "request")
+	}
 }
 
 const cookieExpiry = 5 * time.Minute
@@ -123,7 +144,7 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 	if authReq.ResponseMode == "" {
 		authReq.ResponseMode = "query"
 	}
-	res, err := a.idp.AuthorizeUserRedirect(req.Context(), authReq)
+	res, err := a.IdP.AuthorizeUserRedirect(req.Context(), authReq)
 	if err != nil {
 		a.handleErr(w, req, err)
 		return
@@ -141,7 +162,7 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 		ResponseMode:  authReq.ResponseMode,
 		ExpireTime:    expiry,
 	}
-	signedCookie, err := hmacpb.SignMarshal(a.key, cookieData)
+	signedCookie, err := hmacpb.SignMarshal(a.CookieKey, cookieData)
 	if err != nil {
 		a.handleErr(w, req, err)
 		return
@@ -178,7 +199,7 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 		})
 		return
 	}
-	if err := hmacpb.VerifyUnmarshal(a.key, cookieBytes, data); err != nil {
+	if err := hmacpb.VerifyUnmarshal(a.CookieKey, cookieBytes, data); err != nil {
 		a.handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "invalid auth cookie",
@@ -222,7 +243,7 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 		RPState: data.RpState,
 		Params:  params,
 	}
-	res, err := a.idp.AuthorizeCodeRedirect(req.Context(), authReq)
+	res, err := a.IdP.AuthorizeCodeRedirect(req.Context(), authReq)
 	if err != nil {
 		a.handleErr(w, req, err)
 		return
@@ -267,7 +288,7 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	var res *hubauth.AccessToken
 	switch req.Form.Get("grant_type") {
 	case "authorization_code":
-		res, err = a.idp.ExchangeCode(req.Context(), &hubauth.ExchangeCodeRequest{
+		res, err = a.IdP.ExchangeCode(req.Context(), &hubauth.ExchangeCodeRequest{
 			ClientID:     req.PostForm.Get("client_id"),
 			Audience:     aud,
 			RedirectURI:  req.PostForm.Get("redirect_uri"),
@@ -275,7 +296,7 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 			CodeVerifier: req.PostForm.Get("code_verifier"),
 		})
 	case "refresh_token":
-		res, err = a.idp.RefreshToken(req.Context(), &hubauth.RefreshTokenRequest{
+		res, err = a.IdP.RefreshToken(req.Context(), &hubauth.RefreshTokenRequest{
 			ClientID:     req.PostForm.Get("client_id"),
 			Audience:     aud,
 			RefreshToken: req.PostForm.Get("refresh_token"),
@@ -312,13 +333,7 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 func (a *api) handleErr(w http.ResponseWriter, req *http.Request, err error) {
 	oe, ok := err.(*hubauth.OAuthError)
 	if !ok {
-		if a.errClient != nil {
-			a.errClient.Report(errorreporting.Entry{
-				Error: err,
-				Req:   req,
-				Stack: errstack.Format(err),
-			})
-		}
+		w.(*loggingResponseWriter).SetErr(err)
 		oe = &hubauth.OAuthError{
 			Code:        "server_error",
 			Description: "internal server error",

@@ -6,9 +6,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
-	"cloud.google.com/go/errorreporting"
 	"github.com/flynn/hubauth/pkg/clog"
-	"github.com/flynn/hubauth/pkg/errstack"
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/impersonate"
 	"go.opencensus.io/trace"
@@ -20,10 +18,10 @@ import (
 	"google.golang.org/api/option"
 )
 
-func New(db hubauth.DataStore, errClient *errorreporting.Client) *Service {
+func New(db hubauth.DataStore, errInfo *clog.ErrInfo) *Service {
 	return &Service{
 		db:           db,
-		errClient:    errClient,
+		errInfo:      errInfo,
 		adminClients: make(map[string]*admin.Service),
 	}
 }
@@ -31,7 +29,7 @@ func New(db hubauth.DataStore, errClient *errorreporting.Client) *Service {
 type Service struct {
 	db hubauth.DataStore
 
-	errClient *errorreporting.Client
+	errInfo *clog.ErrInfo
 
 	mtx          sync.Mutex
 	adminClients map[string]*admin.Service
@@ -42,14 +40,11 @@ type domainGroup struct {
 	Group  string
 }
 
-func (s *Service) reportError(err error) {
-	if s.errClient == nil {
-		return
+func (s *Service) reportError(l *zap.Logger, err error) {
+	if l == nil {
+		l = clog.Logger
 	}
-	s.errClient.Report(errorreporting.Entry{
-		Error: err,
-		Stack: errstack.Format(err),
-	})
+	clog.ErrorWithLogger(l, err, s.errInfo)
 }
 
 func (s *Service) Sync(ctx context.Context) error {
@@ -58,7 +53,6 @@ func (s *Service) Sync(ctx context.Context) error {
 
 	clusters, err := s.db.ListClusters(ctx)
 	if err != nil {
-		s.reportError(err)
 		return fmt.Errorf("groupsync: error listing clients: %w", err)
 	}
 
@@ -81,7 +75,6 @@ func (s *Service) Sync(ctx context.Context) error {
 	serviceAccountToken := google.ComputeTokenSource("", "https://www.googleapis.com/auth/iam")
 	serviceAccountEmail, err := metadata.Email("")
 	if err != nil {
-		s.reportError(err)
 		return fmt.Errorf("groupsync: error retrieving service account email: %w", err)
 	}
 
@@ -108,8 +101,7 @@ func (s *Service) Sync(ctx context.Context) error {
 				ac, err = newAdminClient(context.Background(), apiUser, serviceAccountEmail, serviceAccountToken)
 				if err != nil {
 					s.mtx.Unlock()
-					l.Error("error building admin client", zap.Error(err))
-					s.reportError(err)
+					s.reportError(l, err)
 					failed++
 					return
 				}
@@ -119,8 +111,7 @@ func (s *Service) Sync(ctx context.Context) error {
 
 			group, err := ac.Groups.Get(g.Group).Context(ctx).Do()
 			if err != nil {
-				l.Error("error getting group", zap.Error(err))
-				s.reportError(err)
+				s.reportError(l, err)
 				failed++
 				return
 			}
@@ -134,8 +125,7 @@ func (s *Service) Sync(ctx context.Context) error {
 				}
 				res, err := req.Do()
 				if err != nil {
-					l.Error("error listing members", zap.Error(err))
-					s.reportError(err)
+					s.reportError(l, err)
 					failed++
 					return
 				}
@@ -165,8 +155,7 @@ func (s *Service) Sync(ctx context.Context) error {
 				Email:   group.Email,
 			}, cachedMembers)
 			if err != nil {
-				l.Error("error setting cached group", zap.Error(err))
-				s.reportError(err)
+				s.reportError(l, err)
 				failed++
 				return
 			}

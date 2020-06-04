@@ -1,12 +1,12 @@
-package errstack
+package errsource
 
 import (
-	"fmt"
+	"runtime"
 
 	"golang.org/x/exp/errors"
 )
 
-func Format(err error) []byte {
+func Source(err error) *runtime.Frame {
 	errFormatter, ok := err.(errors.Formatter)
 	if !ok {
 		return nil
@@ -16,13 +16,11 @@ func Format(err error) []byte {
 	if fp.Function == "" || fp.File == "" {
 		return nil
 	}
-	return []byte(fmt.Sprintf("goroutine 1 [running]:\n%s()\n\t%s:%d +0", fp.Function, fp.File, fp.Line))
+	return &fp.Frame
 }
 
 type framePrinter struct {
-	Function string
-	File     string
-	Line     int
+	runtime.Frame
 }
 
 func (p *framePrinter) Print(args ...interface{}) {}

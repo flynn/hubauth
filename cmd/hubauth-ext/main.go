@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	google_datastore "cloud.google.com/go/datastore"
-	"cloud.google.com/go/errorreporting"
 	kms "cloud.google.com/go/kms/apiv1"
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"contrib.go.opencensus.io/exporter/stackdriver"
@@ -38,13 +38,6 @@ func main() {
 	trace.ApplyConfig(trace.Config{DefaultSampler: trace.AlwaysSample()})
 
 	ctx := context.Background()
-	errClient, err := errorreporting.NewClient(ctx, os.Getenv("PROJECT_ID"), errorreporting.Config{
-		ServiceName:    "hubauth-ext",
-		ServiceVersion: os.Getenv("BUILD_REV"),
-	})
-	if err != nil {
-		log.Fatalf("error initializing error reporting client: %s", err)
-	}
 
 	dsClient, err := google_datastore.NewClient(ctx, os.Getenv("PROJECT_ID"))
 	if err != nil {
@@ -77,8 +70,8 @@ func main() {
 
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
 		Propagation: &propagation.HTTPFormat{},
-		Handler: httpapi.New(
-			idp.New(datastore.New(dsClient),
+		Handler: httpapi.New(httpapi.Config{
+			IdP: idp.New(datastore.New(dsClient),
 				google.New(
 					os.Getenv("RP_GOOGLE_CLIENT_ID"),
 					os.Getenv("RP_GOOGLE_CLIENT_SECRET"),
@@ -89,8 +82,11 @@ func main() {
 				refreshKey,
 				idp.ClusterKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
 			),
-			errClient,
-			[]byte(secret("COOKIE_KEY_SECRET")),
-		)},
+			CookieKey:  []byte(secret("COOKIE_KEY_SECRET")),
+			ProjectID:  os.Getenv("PROJECT_ID"),
+			Repository: fmt.Sprintf("https://source.developers.google.com/p/%s/r/%s", os.Getenv("PROJECT_ID"), os.Getenv("BUILD_REPO")),
+			Revision:   os.Getenv("BUILD_REV"),
+		}),
+	},
 	))
 }

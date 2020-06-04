@@ -139,8 +139,10 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		}
 		return nil, fmt.Errorf("idp: error from RP: %w", err)
 	}
-	clog.Set(ctx, zap.String("rp_user_id", token.UserID))
-	clog.Set(ctx, zap.String("rp_user_email", token.Email))
+	clog.Set(ctx,
+		zap.String("rp_user_id", token.UserID),
+		zap.String("rp_user_email", token.Email),
+	)
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -193,8 +195,10 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		return nil, err
 	}
 
-	clog.Set(ctx, zap.String("issued_code_id", codeID))
-	clog.Set(ctx, zap.Time("issued_code_expiry", code.ExpiryTime))
+	clog.Set(ctx,
+		zap.String("issued_code_id", codeID),
+		zap.Time("issued_code_expiry", code.ExpiryTime),
+	)
 	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == "fragment", map[string]string{
 		"code":  codeRes,
 		"state": req.ClientState,
@@ -226,6 +230,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 
 	g, ctx := errgroup.WithContext(parentCtx)
 
+	now := time.Now()
 	rtID, err := s.db.AllocateRefreshTokenID(ctx, req.ClientID)
 	if err != nil {
 		return nil, fmt.Errorf("idp: error allocating refresh token ID: %w", err)
@@ -265,8 +270,10 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			}
 			return fmt.Errorf("idp: error verifying and deleting code %s: %w", codeID, err)
 		}
-		clog.Set(ctx, zap.String("code_user_id", code.UserID))
-		clog.Set(ctx, zap.String("code_user_email", code.UserEmail))
+		clog.Set(ctx,
+			zap.String("code_user_id", code.UserID),
+			zap.String("code_user_email", code.UserEmail),
+		)
 		if req.ClientID != code.ClientID {
 			clog.Set(ctx, zap.String("code_client_id", code.ClientID))
 			return &hubauth.OAuthError{
@@ -285,8 +292,10 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		chall := sha256.Sum256([]byte(req.CodeVerifier))
 		challenge := strings.TrimRight(base64.URLEncoding.EncodeToString(chall[:]), "=")
 		if code.PKCEChallenge != challenge {
-			clog.Set(ctx, zap.String("code_challenge", code.PKCEChallenge))
-			clog.Set(ctx, zap.String("expected_challenge", challenge))
+			clog.Set(ctx,
+				zap.String("code_challenge", code.PKCEChallenge),
+				zap.String("expected_challenge", challenge),
+			)
 			return &hubauth.OAuthError{
 				Code:        "invalid_request",
 				Description: "code_verifier mismatch",
@@ -353,15 +362,18 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			UserEmail:   codeInfo.UserEmail,
 			RedirectURI: req.RedirectURI,
 			CodeID:      codeID,
-			ExpiryTime:  time.Now().Add(client.RefreshTokenExpiry),
+			IssueTime:   now,
+			ExpiryTime:  now.Add(client.RefreshTokenExpiry),
 		}
 		_, err = s.db.CreateRefreshToken(ctx, rt)
 		if err != nil {
 			return fmt.Errorf("idp: error creating refresh token for code %s: %w", codeID, err)
 		}
-		clog.Set(ctx, zap.Time("issued_refresh_token_expiry", rt.ExpiryTime))
-		clog.Set(ctx, zap.String("issued_refresh_token_id", rt.ID))
-		clog.Set(ctx, zap.Int("issued_refresh_token_version", 0))
+		clog.Set(ctx,
+			zap.Time("issued_refresh_token_expiry", rt.ExpiryTime),
+			zap.String("issued_refresh_token_id", rt.ID),
+			zap.Int("issued_refresh_token_version", 0),
+		)
 		return nil
 	})
 
@@ -370,7 +382,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		var err error
 		refreshToken, err = s.signRefreshToken(ctx, &refreshTokenData{
 			Key:       rtID,
-			Version:   0,
+			IssueTime: now,
 			UserID:    codeInfo.UserId,
 			UserEmail: codeInfo.UserEmail,
 		})
@@ -390,8 +402,10 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		if err != nil {
 			return err
 		}
-		clog.Set(ctx, zap.String("issued_access_token_id", accessTokenID))
-		clog.Set(ctx, zap.Duration("issued_access_token_expires_in", accessTokenDuration))
+		clog.Set(ctx,
+			zap.String("issued_access_token_id", accessTokenID),
+			zap.Duration("issued_access_token_expires_in", accessTokenDuration),
+		)
 		return nil
 	})
 
@@ -431,11 +445,22 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			Description: "invalid refresh_token",
 		}
 	}
+	now := time.Now()
+	oldIssueTime, err := ptypes.Timestamp(oldToken.IssueTime)
+	if err != nil {
+		clog.Set(ctx, zap.NamedError("issue_time_error", err))
+		return nil, &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "invalid refresh_token",
+		}
+	}
 	rtKey := strings.TrimRight(base64.URLEncoding.EncodeToString(oldToken.Key), "=")
-	clog.Set(ctx, zap.String("refresh_token_id", rtKey))
-	clog.Set(ctx, zap.Uint64("refresh_token_version", oldToken.Version))
-	clog.Set(ctx, zap.String("refresh_token_user_id", oldToken.UserId))
-	clog.Set(ctx, zap.String("refresh_token_user_email", oldToken.UserEmail))
+	clog.Set(ctx,
+		zap.String("refresh_token_id", rtKey),
+		zap.Time("refresh_token_issue_time", oldIssueTime),
+		zap.String("refresh_token_user_id", oldToken.UserId),
+		zap.String("refresh_token_user_email", oldToken.UserEmail),
+	)
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -478,7 +503,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	var newToken *hubauth.RefreshToken
 	g.Go(func() error {
 		var err error
-		newToken, err = s.db.RenewRefreshToken(ctx, req.ClientID, rtKey, int(oldToken.Version))
+		newToken, err = s.db.RenewRefreshToken(ctx, req.ClientID, rtKey, oldIssueTime, now)
 		if err != nil {
 			switch {
 			case errors.Is(err, hubauth.ErrNotFound):
@@ -512,7 +537,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		var err error
 		refreshToken, err = s.signRefreshToken(ctx, &refreshTokenData{
 			Key:       rtKey,
-			Version:   int(oldToken.Version) + 1,
+			IssueTime: now,
 			UserID:    oldToken.UserId,
 			UserEmail: oldToken.UserEmail,
 		})
@@ -538,11 +563,13 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		return nil, err
 	}
 
-	clog.Set(ctx, zap.String("issued_access_token_id", accessTokenID))
-	clog.Set(ctx, zap.Duration("issued_access_token_expires_in", accessTokenDuration))
-	clog.Set(ctx, zap.String("issued_refresh_token_id", newToken.ID))
-	clog.Set(ctx, zap.Int("issued_refresh_token_version", newToken.Version))
-	clog.Set(ctx, zap.Time("issued_refresh_token_expiry", newToken.ExpiryTime))
+	clog.Set(ctx,
+		zap.String("issued_access_token_id", accessTokenID),
+		zap.Duration("issued_access_token_expires_in", accessTokenDuration),
+		zap.String("issued_refresh_token_id", newToken.ID),
+		zap.Time("issued_refresh_token_issue_time", newToken.IssueTime),
+		zap.Time("issued_refresh_token_expiry", newToken.ExpiryTime),
+	)
 
 	return &hubauth.AccessToken{
 		RefreshToken:          refreshToken,
@@ -612,7 +639,7 @@ func (s *idpService) signCode(code *codeData) (string, error) {
 
 type refreshTokenData struct {
 	Key       string
-	Version   int
+	IssueTime time.Time
 	UserID    string
 	UserEmail string
 }
@@ -622,7 +649,7 @@ func (s *idpService) signRefreshToken(ctx context.Context, t *refreshTokenData) 
 	span.AddAttributes(
 		trace.StringAttribute("refresh_token_id", t.Key),
 		trace.StringAttribute("user_id", t.UserID),
-		trace.Int64Attribute("refresh_token_version", int64(t.Version)),
+		trace.StringAttribute("refresh_token_issue_time", t.IssueTime.String()),
 	)
 	defer span.End()
 
@@ -631,9 +658,10 @@ func (s *idpService) signRefreshToken(ctx context.Context, t *refreshTokenData) 
 		return "", fmt.Errorf("idp: error decoding refresh token key %q: %w", t.Key, err)
 	}
 
+	iss, _ := ptypes.TimestampProto(t.IssueTime)
 	msg := &pb.RefreshToken{
 		Key:       keyBytes,
-		Version:   uint64(t.Version),
+		IssueTime: iss,
 		UserId:    t.UserID,
 		UserEmail: t.UserEmail,
 	}
@@ -663,16 +691,8 @@ func (s *idpService) signAccessToken(ctx context.Context, t *accessTokenData) (t
 	defer span.End()
 
 	now := time.Now()
-	exp, err := ptypes.TimestampProto(now.Add(accessTokenDuration))
-	if err != nil {
-		// this should be unreachable
-		panic(err)
-	}
-	iss, err := ptypes.TimestampProto(now)
-	if err != nil {
-		// this should be unreachable
-		panic(err)
-	}
+	exp, _ := ptypes.TimestampProto(now.Add(accessTokenDuration))
+	iss, _ := ptypes.TimestampProto(now)
 	msg := &pb.AccessToken{
 		ClientId:   t.clientID,
 		UserId:     t.userID,

@@ -118,7 +118,7 @@ type RefreshTokenStore interface {
 	GetRefreshToken(ctx context.Context, id string) (*RefreshToken, error)
 	AllocateRefreshTokenID(ctx context.Context, clientID string) (string, error)
 	CreateRefreshToken(ctx context.Context, token *RefreshToken) (string, error)
-	RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*RefreshToken, error)
+	RenewRefreshToken(ctx context.Context, clientID, id string, prevIssueTime, now time.Time) (*RefreshToken, error)
 	DeleteRefreshToken(ctx context.Context, id string) error
 	DeleteRefreshTokensWithCode(ctx context.Context, codeID string) ([]string, error)
 	DeleteExpiredRefreshTokens(ctx context.Context) ([]string, error)
@@ -131,9 +131,8 @@ type RefreshToken struct {
 	UserEmail   string
 	RedirectURI string
 	CodeID      string
-	Version     int
 	CreateTime  time.Time
-	RenewTime   time.Time
+	IssueTime   time.Time
 	ExpiryTime  time.Time
 }
 

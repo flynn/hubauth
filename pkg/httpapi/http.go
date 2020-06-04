@@ -76,12 +76,14 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		w.status = 200
 	}
 
-	clog.Set(ctx, zap.String("request_path", req.URL.Path))
-	clog.Set(ctx, zap.String("request_method", req.Method))
-	clog.Set(ctx, zap.String("request_ip", req.Header.Get("X-Forwarded-For")))
-	clog.Set(ctx, zap.String("request_user_agent", req.Header.Get("User-Agent")))
-	clog.Set(ctx, zap.String("request_content_type", req.Header.Get("Content-Type")))
-	clog.Set(ctx, zap.Int("response_status", w.status))
+	clog.Set(ctx,
+		zap.String("request_path", req.URL.Path),
+		zap.String("request_method", req.Method),
+		zap.String("request_ip", req.Header.Get("X-Forwarded-For")),
+		zap.String("request_user_agent", req.Header.Get("User-Agent")),
+		zap.String("request_content_type", req.Header.Get("Content-Type")),
+		zap.Int("response_status", w.status),
+	)
 	if l := w.Header().Get("Location"); l != "" {
 		clog.Set(ctx, zap.String("response_location", l))
 	}

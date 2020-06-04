@@ -8,6 +8,8 @@ import (
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"go.opencensus.io/trace"
 	"golang.org/x/exp/errors/fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func buildRefreshToken(t *hubauth.RefreshToken) (*refreshToken, error) {
@@ -35,16 +37,20 @@ func buildRefreshToken(t *hubauth.RefreshToken) (*refreshToken, error) {
 		}
 	}
 
-	now := time.Now()
+	var now time.Time
+	if !t.IssueTime.IsZero() {
+		now = t.IssueTime
+	} else {
+		now = time.Now()
+	}
 	return &refreshToken{
 		Key:         key,
 		UserID:      t.UserID,
 		UserEmail:   t.UserEmail,
 		RedirectURI: t.RedirectURI,
 		Code:        code,
-		Version:     0,
 		CreateTime:  now,
-		RenewTime:   now,
+		IssueTime:   now,
 		ExpiryTime:  t.ExpiryTime,
 	}, nil
 }
@@ -55,9 +61,8 @@ type refreshToken struct {
 	UserEmail   string
 	RedirectURI string
 	Code        *datastore.Key
-	Version     int `datastore:",noindex"`
 	CreateTime  time.Time
-	RenewTime   time.Time
+	IssueTime   time.Time
 	ExpiryTime  time.Time
 }
 
@@ -69,9 +74,8 @@ func (t *refreshToken) Export() *hubauth.RefreshToken {
 		UserEmail:   t.UserEmail,
 		RedirectURI: t.RedirectURI,
 		CodeID:      t.Code.Encode(),
-		Version:     t.Version,
 		CreateTime:  t.CreateTime,
-		RenewTime:   t.RenewTime,
+		IssueTime:   t.IssueTime,
 		ExpiryTime:  t.ExpiryTime,
 	}
 }
@@ -134,12 +138,12 @@ func (s *service) CreateRefreshToken(ctx context.Context, token *hubauth.Refresh
 	return id, nil
 }
 
-func (s *service) RenewRefreshToken(ctx context.Context, clientID, id string, version int) (*hubauth.RefreshToken, error) {
+func (s *service) RenewRefreshToken(ctx context.Context, clientID, id string, prevIssueTime, now time.Time) (*hubauth.RefreshToken, error) {
 	ctx, span := trace.StartSpan(ctx, "datastore.RenewRefreshToken")
 	span.AddAttributes(
 		trace.StringAttribute("refresh_token_id", id),
 		trace.StringAttribute("client_id", id),
-		trace.Int64Attribute("refresh_token_version", int64(version)),
+		trace.StringAttribute("refresh_token_issue_time", prevIssueTime.String()),
 	)
 	defer span.End()
 
@@ -148,42 +152,34 @@ func (s *service) RenewRefreshToken(ctx context.Context, clientID, id string, ve
 		return nil, err
 	}
 	t := &refreshToken{}
-	versionMismatch := false
-	clientMismatch := false
-	_, err = s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-		if err := tx.Get(k, t); err != nil {
-			if err == datastore.ErrNoSuchEntity {
-				err = hubauth.ErrNotFound
-			}
-			return err
+	if err := s.db.Get(ctx, k, t); err != nil {
+		if err == datastore.ErrNoSuchEntity {
+			err = hubauth.ErrNotFound
 		}
-		now := time.Now().Truncate(time.Millisecond)
-		if now.After(t.ExpiryTime) {
-			return hubauth.ErrExpired
-		}
-		if clientID != t.Key.Parent.Encode() {
-			clientMismatch = true
-		} else if t.Version != version {
-			versionMismatch = true
-		}
-		if clientMismatch || versionMismatch {
-			if err := tx.Delete(k); err != nil {
-				return err
-			}
-			return nil
-		}
-		t.Version++
-		t.RenewTime = now
-		_, err = tx.Put(k, t)
-		return err
-	})
-	if clientMismatch {
-		err = hubauth.ErrClientIDMismatch
+		return nil, err
 	}
-	if versionMismatch {
+	now = now.Truncate(time.Millisecond)
+	if now.After(t.ExpiryTime) {
+		return nil, hubauth.ErrExpired
+	}
+
+	if clientID != t.Key.Parent.Encode() {
+		err = hubauth.ErrClientIDMismatch
+	} else if !t.IssueTime.Truncate(time.Millisecond).Equal(prevIssueTime.Truncate(time.Millisecond)) {
 		err = hubauth.ErrRefreshTokenVersionMismatch
 	}
 	if err != nil {
+		if dErr := s.db.Delete(ctx, k); dErr != nil {
+			return nil, fmt.Errorf("datastore: error deleting refresh token %s after failed renewal: %w", id, dErr)
+		}
+		return nil, fmt.Errorf("datastore: error renewing refresh token %s: %w", id, err)
+	}
+	t.IssueTime = now
+	_, err = s.db.Mutate(ctx, datastore.NewUpdate(k, t))
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			err = hubauth.ErrNotFound
+		}
 		return nil, fmt.Errorf("datastore: error renewing refresh token %s: %w", id, err)
 	}
 	return t.Export(), nil

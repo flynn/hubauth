@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/datastore v1.1.0
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.1
 	github.com/alecthomas/kong v0.2.9
-	github.com/aws/aws-sdk-go v1.31.9
+	github.com/aws/aws-sdk-go v1.31.11
 	github.com/golang/protobuf v1.4.2
 	github.com/google/go-cmp v0.4.1 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5
@@ -22,9 +22,10 @@ require (
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
 	golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
 	golang.org/x/sys v0.0.0-20200602225109-6fdc65e7d980 // indirect
-	golang.org/x/tools v0.0.0-20200601175630-2caf76543d99 // indirect
+	golang.org/x/tools v0.0.0-20200604183345-4d5ea46c79fe // indirect
 	google.golang.org/api v0.26.0
-	google.golang.org/genproto v0.0.0-20200602104108-2bb8d6132df6
+	google.golang.org/genproto v0.0.0-20200604104852-0b0486081ffb
+	google.golang.org/grpc v1.29.1
 	google.golang.org/protobuf v1.24.0
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 	honnef.co/go/tools v0.0.1-2020.1.4 // indirect

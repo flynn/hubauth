@@ -29,18 +29,18 @@ func TestRefreshTokenCRUD(t *testing.T) {
 	res, err := s.GetRefreshToken(ctx, id)
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now(), res.CreateTime, time.Second)
-	require.Equal(t, res.CreateTime, res.RenewTime)
+	require.Equal(t, res.CreateTime, res.IssueTime)
 	rt.CreateTime = res.CreateTime
-	rt.RenewTime = res.RenewTime
+	rt.IssueTime = res.IssueTime
 	rt.ID = id
 	require.Equal(t, rt, res)
 
-	renewed, err := s.RenewRefreshToken(ctx, rt.ClientID, id, 0)
+	now := time.Now()
+	renewed, err := s.RenewRefreshToken(ctx, rt.ClientID, id, res.IssueTime, now)
 	require.NoError(t, err)
 	require.Equal(t, res.CreateTime, renewed.CreateTime)
-	require.Truef(t, renewed.RenewTime.After(renewed.CreateTime), "%v renewal time not after %v", renewed.RenewTime, renewed.CreateTime)
-	require.WithinDuration(t, time.Now(), renewed.RenewTime, time.Second)
-	require.Equal(t, 1, renewed.Version)
+	require.Truef(t, renewed.IssueTime.After(renewed.CreateTime), "%v renewal time not after %v", renewed.IssueTime, renewed.CreateTime)
+	require.WithinDuration(t, time.Now(), renewed.IssueTime, time.Second)
 
 	gotRenewed, err := s.GetRefreshToken(ctx, id)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestRefreshTokenCRUD(t *testing.T) {
 	_, err = s.GetRefreshToken(ctx, id)
 	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
 
-	_, err = s.RenewRefreshToken(ctx, rt.ClientID, id, 0)
+	_, err = s.RenewRefreshToken(ctx, rt.ClientID, id, res.IssueTime, now)
 	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
 }
 
@@ -65,19 +65,20 @@ func TestRefreshTokenRenewExpired(t *testing.T) {
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
 		UserID:     "123",
 		UserEmail:  "foo@example.com",
+		IssueTime:  time.Now().Add(-5 * time.Minute),
 		ExpiryTime: time.Now().Add(-time.Minute),
 	}
 	id, err := s.CreateRefreshToken(ctx, rt)
 	require.NoError(t, err)
 
-	_, err = s.RenewRefreshToken(ctx, rt.ClientID, id, 0)
+	_, err = s.RenewRefreshToken(ctx, rt.ClientID, id, rt.IssueTime, time.Now())
 	require.Truef(t, errors.Is(err, hubauth.ErrExpired), "wrong err %v", err)
 
 	err = s.DeleteRefreshToken(ctx, id)
 	require.NoError(t, err)
 }
 
-func TestRefreshTokenRenewWrongVersion(t *testing.T) {
+func TestRefreshTokenRenewWrongIssueTimed(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
 
@@ -86,12 +87,14 @@ func TestRefreshTokenRenewWrongVersion(t *testing.T) {
 		ClientID:   clientID.Encode(),
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
 		UserID:     "foo@example.com",
+		IssueTime:  time.Now().Add(-5 * time.Minute),
 		ExpiryTime: time.Now().Add(time.Minute),
 	}
 	id, err := s.CreateRefreshToken(ctx, rt)
 	require.NoError(t, err)
 
-	_, err = s.RenewRefreshToken(ctx, rt.ClientID, id, 1)
+	now := time.Now()
+	_, err = s.RenewRefreshToken(ctx, rt.ClientID, id, now, now)
 	require.Truef(t, errors.Is(err, hubauth.ErrRefreshTokenVersionMismatch), "wrong err %v", err)
 
 	_, err = s.GetRefreshToken(ctx, id)
@@ -108,12 +111,13 @@ func TestRefreshTokenRenewWrongClientID(t *testing.T) {
 		CodeID:     datastore.NameKey(kindCode, newRandomID(), clientID).Encode(),
 		UserID:     "123",
 		UserEmail:  "foo@example.com",
+		IssueTime:  time.Now().Add(-5 * time.Minute),
 		ExpiryTime: time.Now().Add(time.Minute),
 	}
 	id, err := s.CreateRefreshToken(ctx, rt)
 	require.NoError(t, err)
 
-	_, err = s.RenewRefreshToken(ctx, "a", id, 0)
+	_, err = s.RenewRefreshToken(ctx, "a", id, rt.IssueTime, time.Now())
 	require.Truef(t, errors.Is(err, hubauth.ErrClientIDMismatch), "wrong err %v", err)
 
 	_, err = s.GetRefreshToken(ctx, id)

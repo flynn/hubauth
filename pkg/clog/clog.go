@@ -39,10 +39,10 @@ func Context(ctx context.Context) context.Context {
 	return context.WithValue(ctx, ctxKey{}, &ctxValue{})
 }
 
-func Set(ctx context.Context, f zap.Field) {
+func Set(ctx context.Context, f ...zap.Field) {
 	ctxVal := ctx.Value(ctxKey{}).(*ctxValue)
 	ctxVal.Lock()
-	ctxVal.fields = append(ctxVal.fields, f)
+	ctxVal.fields = append(ctxVal.fields, f...)
 	ctxVal.Unlock()
 }
 

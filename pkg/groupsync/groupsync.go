@@ -105,7 +105,7 @@ func (s *Service) Sync(ctx context.Context) error {
 			s.mtx.Lock()
 			ac, ok := s.adminClients[g.Domain]
 			if !ok {
-				ac, err = newAdminClient(ctx, apiUser, serviceAccountEmail, serviceAccountToken)
+				ac, err = newAdminClient(context.Background(), apiUser, serviceAccountEmail, serviceAccountToken)
 				if err != nil {
 					s.mtx.Unlock()
 					l.Error("error building admin client", zap.Error(err))

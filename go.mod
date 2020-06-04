@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/datastore v1.1.0
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.1
 	github.com/alecthomas/kong v0.2.9
-	github.com/aws/aws-sdk-go v1.31.9
+	github.com/aws/aws-sdk-go v1.31.10
 	github.com/golang/protobuf v1.4.2
 	github.com/google/go-cmp v0.4.1 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5

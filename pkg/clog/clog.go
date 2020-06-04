@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -127,7 +128,7 @@ func ErrorWithLogger(l *zap.Logger, err error, info *ErrInfo, fields ...zap.Fiel
 		}
 	}
 	context["reportLocation"] = map[string]interface{}{
-		"filePath":     frame.File,
+		"filePath":     strings.TrimPrefix(frame.File, "/app/"),
 		"lineNumber":   frame.Line,
 		"functionName": frame.Function,
 	}

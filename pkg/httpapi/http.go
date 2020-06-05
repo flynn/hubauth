@@ -111,7 +111,7 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			Repository:   a.Repository,
 		})
 	} else {
-		clog.Log(ctx, "request")
+		clog.Log(ctx, fmt.Sprintf("%s %s %d %v", req.Method, req.URL.Path, w.status, duration))
 	}
 }
 

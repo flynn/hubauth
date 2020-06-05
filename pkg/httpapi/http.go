@@ -93,13 +93,15 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		zap.String("request_method", req.Method),
 		zap.String("request_ip", req.Header.Get("X-Forwarded-For")),
 		zap.String("request_user_agent", req.Header.Get("User-Agent")),
-		zap.String("request_content_type", req.Header.Get("Content-Type")),
 		zap.Int("response_status", w.status),
+		zap.Duration("response_duration", duration),
 	)
+	if t := req.Header.Get("Content-Type"); t != "" {
+		clog.Set(ctx, zap.String("request_content_type", t))
+	}
 	if l := w.Header().Get("Location"); l != "" {
 		clog.Set(ctx, zap.String("response_location", l))
 	}
-	clog.Set(ctx, zap.Duration("response_duration", duration))
 
 	if w.status >= 500 && w.status <= 599 {
 		clog.Error(ctx, w.err, &clog.ErrInfo{

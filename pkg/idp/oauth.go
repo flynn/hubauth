@@ -236,36 +236,19 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		return nil, fmt.Errorf("idp: error allocating refresh token ID: %w", err)
 	}
 
-	g.Go(func() error {
-		deleted, err := s.db.DeleteRefreshTokensWithCode(ctx, codeID)
-		if err != nil {
-			if errors.Is(err, hubauth.ErrNotFound) {
-				return &hubauth.OAuthError{
-					Code:        "invalid_grant",
-					Description: "invalid code",
-				}
-			}
-			return fmt.Errorf("idp: error deleting refresh tokens with code: %q", err)
-		}
-		if len(deleted) > 0 {
-			clog.Set(ctx, zap.Strings("deleted_refresh_tokens", deleted))
-			return &hubauth.OAuthError{
-				Code:        "invalid_grant",
-				Description: "code already exchanged",
-			}
-		}
-		return nil
-	})
-
 	var code *hubauth.Code
 	g.Go(func() error {
 		var err error
 		code, err = s.db.VerifyAndDeleteCode(ctx, codeID, codeSecret)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrIncorrectCodeSecret) || errors.Is(err, hubauth.ErrNotFound) {
+				deleted, _ := s.db.DeleteRefreshTokensWithCode(ctx, codeID)
+				if len(deleted) > 0 {
+					clog.Set(ctx, zap.Strings("deleted_refresh_tokens", deleted))
+				}
 				return &hubauth.OAuthError{
 					Code:        "invalid_grant",
-					Description: "malformed or incorrect code",
+					Description: "code is malformed or has already been exchanged",
 				}
 			}
 			return fmt.Errorf("idp: error verifying and deleting code %s: %w", codeID, err)

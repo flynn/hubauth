@@ -343,6 +343,14 @@ func (a *api) handleErr(w http.ResponseWriter, req *http.Request, err error) {
 	}
 	clog.Set(req.Context(), zap.String("error_code", oe.Code))
 	clog.Set(req.Context(), zap.Error(err))
+
+	if span := trace.FromContext(req.Context()); span != nil {
+		span.AddAttributes(
+			trace.StringAttribute("error", err.Error()),
+			trace.StringAttribute("error_code", oe.Code),
+		)
+	}
+
 	ci := hubauth.GetClientInfo(req.Context())
 	if ci != nil && ci.RedirectURI != "" {
 		http.Redirect(w, req, oe.RedirectURI(ci.RedirectURI, ci.State, ci.Fragment), http.StatusFound)

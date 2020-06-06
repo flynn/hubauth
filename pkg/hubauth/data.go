@@ -19,7 +19,7 @@ var (
 
 type DataStore interface {
 	ClientStore
-	ClusterStore
+	AudienceStore
 	CodeStore
 	RefreshTokenStore
 	CachedGroupStore
@@ -54,16 +54,16 @@ type ClientMutation struct {
 	RedirectURI string
 }
 
-type ClusterStore interface {
-	GetCluster(ctx context.Context, url string) (*Cluster, error)
-	CreateCluster(ctx context.Context, cluster *Cluster) error
-	MutateCluster(ctx context.Context, url string, mut []*ClusterMutation) error
-	ListClustersForClient(ctx context.Context, clientID string) ([]*Cluster, error)
-	ListClusters(ctx context.Context) ([]*Cluster, error)
-	DeleteCluster(ctx context.Context, url string) error
+type AudienceStore interface {
+	GetAudience(ctx context.Context, url string) (*Audience, error)
+	CreateAudience(ctx context.Context, audience *Audience) error
+	MutateAudience(ctx context.Context, url string, mut []*AudienceMutation) error
+	ListAudiencesForClient(ctx context.Context, clientID string) ([]*Audience, error)
+	ListAudiences(ctx context.Context) ([]*Audience, error)
+	DeleteAudience(ctx context.Context, url string) error
 }
 
-type Cluster struct {
+type Audience struct {
 	URL        string
 	ClientIDs  []string
 	Policies   []*GoogleUserPolicy
@@ -77,17 +77,17 @@ type GoogleUserPolicy struct {
 	Groups  []string
 }
 
-type ClusterMutationOp byte
+type AudienceMutationOp byte
 
 const (
-	ClusterMutationOpAddClientID ClusterMutationOp = iota
-	ClusterMutationOpDeleteClientID
-	ClusterMutationOpSetPolicy
-	ClusterMutationOpDeletePolicy
+	AudienceMutationOpAddClientID AudienceMutationOp = iota
+	AudienceMutationOpDeleteClientID
+	AudienceMutationOpSetPolicy
+	AudienceMutationOpDeletePolicy
 )
 
-type ClusterMutation struct {
-	Op ClusterMutationOp
+type AudienceMutation struct {
+	Op AudienceMutationOp
 
 	ClientID string
 	Policy   GoogleUserPolicy

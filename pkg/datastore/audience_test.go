@@ -10,11 +10,11 @@ import (
 	"golang.org/x/exp/errors"
 )
 
-func TestClusterCRD(t *testing.T) {
+func TestAudienceCRD(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
 
-	c := &hubauth.Cluster{
+	a := &hubauth.Audience{
 		URL:       "https://controller.example.com",
 		ClientIDs: []string{"a"},
 		Policies: []*hubauth.GoogleUserPolicy{
@@ -25,167 +25,167 @@ func TestClusterCRD(t *testing.T) {
 			},
 		},
 	}
-	err := s.CreateCluster(ctx, c)
+	err := s.CreateAudience(ctx, a)
 	require.NoError(t, err)
 
-	res, err := s.GetCluster(ctx, c.URL)
+	res, err := s.GetAudience(ctx, a.URL)
 	require.NoError(t, err)
 	require.WithinDuration(t, time.Now(), res.CreateTime, time.Second)
 	require.Equal(t, res.CreateTime, res.UpdateTime)
 	res.CreateTime = time.Time{}
 	res.UpdateTime = time.Time{}
-	require.Equal(t, c, res)
+	require.Equal(t, a, res)
 
-	clusters, err := s.ListClusters(ctx)
+	audiences, err := s.ListAudiences(ctx)
 	require.NoError(t, err)
-	for _, res = range clusters {
-		if res.URL == c.URL {
+	for _, res = range audiences {
+		if res.URL == a.URL {
 			break
 		}
 	}
 	res.CreateTime = time.Time{}
 	res.UpdateTime = time.Time{}
-	require.Equal(t, c, res)
+	require.Equal(t, a, res)
 
-	err = s.DeleteCluster(ctx, c.URL)
+	err = s.DeleteAudience(ctx, a.URL)
 	require.NoError(t, err)
 
-	_, err = s.GetCluster(ctx, c.URL)
+	_, err = s.GetAudience(ctx, a.URL)
 	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
 }
-func TestClusterListForClientID(t *testing.T) {
+func TestAudienceListForClientID(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()
 
-	c1 := &hubauth.Cluster{
+	a1 := &hubauth.Audience{
 		URL:       "https://controller.1.example.com",
 		ClientIDs: []string{"a", "b"},
 	}
-	err := s.CreateCluster(ctx, c1)
+	err := s.CreateAudience(ctx, a1)
 	require.NoError(t, err)
 
-	c2 := &hubauth.Cluster{
+	a2 := &hubauth.Audience{
 		URL:       "https://controller.2.example.com",
 		ClientIDs: []string{"b", "c"},
 	}
-	err = s.CreateCluster(ctx, c2)
+	err = s.CreateAudience(ctx, a2)
 	require.NoError(t, err)
 
-	clusters, err := s.ListClustersForClient(ctx, "b")
+	audiences, err := s.ListAudiencesForClient(ctx, "b")
 	require.NoError(t, err)
 	found1 := false
 	found2 := false
-	for _, res := range clusters {
-		if res.URL == c1.URL {
+	for _, res := range audiences {
+		if res.URL == a1.URL {
 			found1 = true
 		}
-		if res.URL == c2.URL {
+		if res.URL == a2.URL {
 			found2 = true
 		}
 	}
-	require.Len(t, clusters, 2)
-	require.True(t, found1, "didn't find cluster1")
-	require.True(t, found2, "didn't find cluster2")
+	require.Len(t, audiences, 2)
+	require.True(t, found1, "didn't find audience1")
+	require.True(t, found2, "didn't find audience2")
 
-	err = s.DeleteCluster(ctx, c1.URL)
+	err = s.DeleteAudience(ctx, a1.URL)
 	require.NoError(t, err)
-	err = s.DeleteCluster(ctx, c2.URL)
+	err = s.DeleteAudience(ctx, a2.URL)
 	require.NoError(t, err)
 
-	clusters, err = s.ListClustersForClient(ctx, "b")
+	audiences, err = s.ListAudiencesForClient(ctx, "b")
 	require.NoError(t, err)
-	require.Len(t, clusters, 0)
+	require.Len(t, audiences, 0)
 }
 
-func TestClusterMutate(t *testing.T) {
+func TestAudienceMutate(t *testing.T) {
 	type test struct {
 		desc   string
-		mut    []*hubauth.ClusterMutation
-		before *hubauth.Cluster
-		after  *hubauth.Cluster
+		mut    []*hubauth.AudienceMutation
+		before *hubauth.Audience
+		after  *hubauth.Audience
 	}
 	tests := []test{
 		{
-			desc: "add cluster existing",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpAddClientID, ClientID: "a"},
+			desc: "add audience existing",
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpAddClientID, ClientID: "a"},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				ClientIDs: []string{"a"},
 			},
-			after: &hubauth.Cluster{
-				ClientIDs: []string{"a"},
-			},
-		},
-		{
-			desc: "add cluster new empty",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpAddClientID, ClientID: "a"},
-			},
-			before: &hubauth.Cluster{},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				ClientIDs: []string{"a"},
 			},
 		},
 		{
-			desc: "add cluster new others",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpAddClientID, ClientID: "c"},
+			desc: "add audience new empty",
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpAddClientID, ClientID: "a"},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{},
+			after: &hubauth.Audience{
+				ClientIDs: []string{"a"},
+			},
+		},
+		{
+			desc: "add audience new others",
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpAddClientID, ClientID: "c"},
+			},
+			before: &hubauth.Audience{
 				ClientIDs: []string{"a", "b"},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				ClientIDs: []string{"a", "b", "c"},
 			},
 		},
 		{
 			desc: "delete redirect existing",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpDeleteClientID, ClientID: "c"},
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpDeleteClientID, ClientID: "c"},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				ClientIDs: []string{"a", "c", "b"},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				ClientIDs: []string{"a", "b"},
 			},
 		},
 		{
 			desc: "delete redirect only",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpDeleteClientID, ClientID: "c"},
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpDeleteClientID, ClientID: "c"},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				ClientIDs: []string{"c"},
 			},
-			after: &hubauth.Cluster{},
+			after: &hubauth.Audience{},
 		},
 		{
 			desc: "delete redirect nonexistent",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpDeleteClientID, ClientID: "c"},
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpDeleteClientID, ClientID: "c"},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				ClientIDs: []string{"a", "b"},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				ClientIDs: []string{"a", "b"},
 			},
 		},
 		{
 			desc: "delete redirect empty",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpDeleteClientID, ClientID: "c"},
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpDeleteClientID, ClientID: "c"},
 			},
-			before: &hubauth.Cluster{},
-			after:  &hubauth.Cluster{},
+			before: &hubauth.Audience{},
+			after:  &hubauth.Audience{},
 		},
 		{
 			desc: "set policy existing",
-			mut: []*hubauth.ClusterMutation{
+			mut: []*hubauth.AudienceMutation{
 				{
-					Op: hubauth.ClusterMutationOpSetPolicy,
+					Op: hubauth.AudienceMutationOpSetPolicy,
 					Policy: hubauth.GoogleUserPolicy{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
@@ -193,13 +193,13 @@ func TestClusterMutate(t *testing.T) {
 					},
 				},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
@@ -208,9 +208,9 @@ func TestClusterMutate(t *testing.T) {
 		},
 		{
 			desc: "set policy new empty",
-			mut: []*hubauth.ClusterMutation{
+			mut: []*hubauth.AudienceMutation{
 				{
-					Op: hubauth.ClusterMutationOpSetPolicy,
+					Op: hubauth.AudienceMutationOpSetPolicy,
 					Policy: hubauth.GoogleUserPolicy{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
@@ -218,8 +218,8 @@ func TestClusterMutate(t *testing.T) {
 					},
 				},
 			},
-			before: &hubauth.Cluster{},
-			after: &hubauth.Cluster{
+			before: &hubauth.Audience{},
+			after: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
 				},
@@ -227,9 +227,9 @@ func TestClusterMutate(t *testing.T) {
 		},
 		{
 			desc: "set policy new existing",
-			mut: []*hubauth.ClusterMutation{
+			mut: []*hubauth.AudienceMutation{
 				{
-					Op: hubauth.ClusterMutationOpSetPolicy,
+					Op: hubauth.AudienceMutationOpSetPolicy,
 					Policy: hubauth.GoogleUserPolicy{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
@@ -237,12 +237,12 @@ func TestClusterMutate(t *testing.T) {
 					},
 				},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 				},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
@@ -251,19 +251,19 @@ func TestClusterMutate(t *testing.T) {
 		},
 		{
 			desc: "delete policy existing",
-			mut: []*hubauth.ClusterMutation{
+			mut: []*hubauth.AudienceMutation{
 				{
-					Op:     hubauth.ClusterMutationOpDeletePolicy,
+					Op:     hubauth.AudienceMutationOpDeletePolicy,
 					Policy: hubauth.GoogleUserPolicy{Domain: "example.com"},
 				},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 				},
@@ -271,33 +271,33 @@ func TestClusterMutate(t *testing.T) {
 		},
 		{
 			desc: "delete policy only",
-			mut: []*hubauth.ClusterMutation{
+			mut: []*hubauth.AudienceMutation{
 				{
-					Op:     hubauth.ClusterMutationOpDeletePolicy,
+					Op:     hubauth.AudienceMutationOpDeletePolicy,
 					Policy: hubauth.GoogleUserPolicy{Domain: "example.com"},
 				},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
-			after: &hubauth.Cluster{},
+			after: &hubauth.Audience{},
 		},
 		{
 			desc: "delete policy nonexistent",
-			mut: []*hubauth.ClusterMutation{
+			mut: []*hubauth.AudienceMutation{
 				{
-					Op:     hubauth.ClusterMutationOpDeletePolicy,
+					Op:     hubauth.AudienceMutationOpDeletePolicy,
 					Policy: hubauth.GoogleUserPolicy{Domain: "a.com"},
 				},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
@@ -305,21 +305,21 @@ func TestClusterMutate(t *testing.T) {
 		},
 		{
 			desc: "delete policy empty",
-			mut: []*hubauth.ClusterMutation{
+			mut: []*hubauth.AudienceMutation{
 				{
-					Op:     hubauth.ClusterMutationOpDeletePolicy,
+					Op:     hubauth.AudienceMutationOpDeletePolicy,
 					Policy: hubauth.GoogleUserPolicy{Domain: "a.com"},
 				},
 			},
-			before: &hubauth.Cluster{},
-			after:  &hubauth.Cluster{},
+			before: &hubauth.Audience{},
+			after:  &hubauth.Audience{},
 		},
 		{
 			desc: "multiple",
-			mut: []*hubauth.ClusterMutation{
-				{Op: hubauth.ClusterMutationOpAddClientID, ClientID: "c"},
+			mut: []*hubauth.AudienceMutation{
+				{Op: hubauth.AudienceMutationOpAddClientID, ClientID: "c"},
 				{
-					Op: hubauth.ClusterMutationOpSetPolicy,
+					Op: hubauth.AudienceMutationOpSetPolicy,
 					Policy: hubauth.GoogleUserPolicy{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
@@ -327,10 +327,10 @@ func TestClusterMutate(t *testing.T) {
 					},
 				},
 			},
-			before: &hubauth.Cluster{
+			before: &hubauth.Audience{
 				ClientIDs: []string{"a", "b"},
 			},
-			after: &hubauth.Cluster{
+			after: &hubauth.Audience{
 				ClientIDs: []string{"a", "b", "c"},
 				Policies: []*hubauth.GoogleUserPolicy{
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
@@ -345,15 +345,15 @@ func TestClusterMutate(t *testing.T) {
 	for _, tt := range tests {
 		tt.before.URL = url
 		tt.after.URL = url
-		err := s.CreateCluster(ctx, tt.before)
+		err := s.CreateAudience(ctx, tt.before)
 		require.NoError(t, err, tt.desc)
-		before, err := s.GetCluster(ctx, url)
+		before, err := s.GetAudience(ctx, url)
 		require.NoError(t, err)
 
-		err = s.MutateCluster(ctx, url, tt.mut)
+		err = s.MutateAudience(ctx, url, tt.mut)
 		require.NoError(t, err, tt.desc)
 
-		res, err := s.GetCluster(ctx, url)
+		res, err := s.GetAudience(ctx, url)
 		require.NoError(t, err, tt.desc)
 		if len(res.Policies) == 0 {
 			res.Policies = nil
@@ -364,6 +364,6 @@ func TestClusterMutate(t *testing.T) {
 		res.UpdateTime = time.Time{}
 		require.Equal(t, tt.after, res, tt.desc)
 
-		s.DeleteCluster(ctx, url)
+		s.DeleteAudience(ctx, url)
 	}
 }

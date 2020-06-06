@@ -12,16 +12,16 @@ import (
 	"google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
-type clustersCmd struct {
-	List      clustersListCmd      `kong:"cmd,help='list clusters',default:'1'"`
-	Create    clustersCreateCmd    `kong:"cmd,help='create cluster'"`
-	SetPolicy clustersSetPolicyCmd `kong:"cmd,name='set-policy',help='set cluster auth policy'"`
+type audiencesCmd struct {
+	List      audiencesListCmd      `kong:"cmd,help='list audiences',default:'1'"`
+	Create    audiencesCreateCmd    `kong:"cmd,help='create audience'"`
+	SetPolicy audiencesSetPolicyCmd `kong:"cmd,name='set-policy',help='set audience auth policy'"`
 }
 
-type clustersListCmd struct{}
+type audiencesListCmd struct{}
 
-func (c *clustersListCmd) Run(cfg *Config) error {
-	clients, err := cfg.DB.ListClusters(context.Background())
+func (c *audiencesListCmd) Run(cfg *Config) error {
+	clients, err := cfg.DB.ListAudiences(context.Background())
 	if err != nil {
 		return err
 	}
@@ -35,14 +35,14 @@ func (c *clustersListCmd) Run(cfg *Config) error {
 	return nil
 }
 
-type clustersCreateCmd struct {
-	URL         string   `kong:"required,name='cluster-url',help='cluster URL'"`
+type audiencesCreateCmd struct {
+	URL         string   `kong:"required,name='audience-url',help='audience URL'"`
 	ClientIDs   []string `kong:"name='client-ids',help='comma-separated client IDs'"`
 	KMSLocation string   `kong:"name='kms-location',default='us',help='KMS keyring location'"`
-	KMSKeyring  string   `kong:"name='kms-keyring',default='hubauth-clusters',help='KMS keyring name'"`
+	KMSKeyring  string   `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
 }
 
-func (c *clustersCreateCmd) Run(cfg *Config) error {
+func (c *audiencesCreateCmd) Run(cfg *Config) error {
 	ctx := context.Background()
 
 	for _, id := range c.ClientIDs {
@@ -54,13 +54,13 @@ func (c *clustersCreateCmd) Run(cfg *Config) error {
 
 	u, err := url.Parse(c.URL)
 	if err != nil {
-		return fmt.Errorf("error parsing cluster URL: %s", err)
+		return fmt.Errorf("error parsing audience URL: %s", err)
 	}
 	if u.Scheme != "https" {
-		return fmt.Errorf("cluster URL must be https://")
+		return fmt.Errorf("audience URL must be https://")
 	}
 	if u.Path != "" {
-		return fmt.Errorf("unexpected path in cluster URL")
+		return fmt.Errorf("unexpected path in audience URL")
 	}
 
 	_, err = cfg.KMS.CreateCryptoKey(ctx, &kms.CreateCryptoKeyRequest{
@@ -75,30 +75,30 @@ func (c *clustersCreateCmd) Run(cfg *Config) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("error creating cluster key: %s", err)
+		return fmt.Errorf("error creating audience key: %s", err)
 	}
 
-	return cfg.DB.CreateCluster(ctx, &hubauth.Cluster{
+	return cfg.DB.CreateAudience(ctx, &hubauth.Audience{
 		URL:       "https://" + u.Host,
 		ClientIDs: c.ClientIDs,
 	})
 }
 
-type clustersSetPolicyCmd struct {
-	ClusterURL string   `kong:"required,name='cluster-url',help='cluster URL'"`
-	Domain     string   `kong:"required,help='G Suite domain name'"`
-	APIUser    string   `kong:"required,name='api-user',help='G Suite user email to impersonate for API calls'"`
-	Groups     []string `kong:"required,help='comma-separated group IDs'"`
+type audiencesSetPolicyCmd struct {
+	AudienceURL string   `kong:"required,name='audience-url',help='audience URL'"`
+	Domain      string   `kong:"required,help='G Suite domain name'"`
+	APIUser     string   `kong:"required,name='api-user',help='G Suite user email to impersonate for API calls'"`
+	Groups      []string `kong:"required,help='comma-separated group IDs'"`
 }
 
-func (c *clustersSetPolicyCmd) Run(cfg *Config) error {
-	mut := &hubauth.ClusterMutation{
-		Op: hubauth.ClusterMutationOpSetPolicy,
+func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
+	mut := &hubauth.AudienceMutation{
+		Op: hubauth.AudienceMutationOpSetPolicy,
 		Policy: hubauth.GoogleUserPolicy{
 			Domain:  c.Domain,
 			APIUser: c.APIUser,
 			Groups:  c.Groups,
 		},
 	}
-	return cfg.DB.MutateCluster(context.Background(), c.ClusterURL, []*hubauth.ClusterMutation{mut})
+	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})
 }

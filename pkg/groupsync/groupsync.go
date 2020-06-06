@@ -51,14 +51,14 @@ func (s *Service) Sync(ctx context.Context) error {
 	ctx, span := trace.StartSpan(ctx, "groupsync.Sync")
 	defer span.End()
 
-	clusters, err := s.db.ListClusters(ctx)
+	audiences, err := s.db.ListAudiences(ctx)
 	if err != nil {
 		return fmt.Errorf("groupsync: error listing clients: %w", err)
 	}
 
 	groups := make(map[domainGroup]string)
-	for _, c := range clusters {
-		for _, p := range c.Policies {
+	for _, a := range audiences {
+		for _, p := range a.Policies {
 			if p.APIUser == "" || p.Domain == "" || len(p.Groups) == 0 {
 				continue
 			}

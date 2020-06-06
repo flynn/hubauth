@@ -80,7 +80,7 @@ func main() {
 				kmsClient,
 				[]byte(secret("CODE_KEY_SECRET")),
 				refreshKey,
-				idp.ClusterKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
+				idp.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
 			),
 			CookieKey:  []byte(secret("COOKIE_KEY_SECRET")),
 			ProjectID:  os.Getenv("PROJECT_ID"),

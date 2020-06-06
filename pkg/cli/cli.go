@@ -15,6 +15,6 @@ type Config struct {
 type CLI struct {
 	ProjectID string `kong:"name='project-id',default='flynn-hubauth-production',help='GCP project ID'"`
 
-	Clients  clientsCmd  `kong:"cmd,help='manage oauth clients'"`
-	Clusters clustersCmd `kong:"cmd,help='manage clusters'"`
+	Clients   clientsCmd   `kong:"cmd,help='manage oauth clients'"`
+	Audiences audiencesCmd `kong:"cmd,help='manage audiences'"`
 }

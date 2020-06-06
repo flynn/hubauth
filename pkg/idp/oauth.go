@@ -24,9 +24,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type ClusterKeyNamer func(audience string) string
+type AudienceKeyNamer func(audience string) string
 
-func ClusterKeyNameFunc(projectID, location, keyRing string) func(string) string {
+func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) string {
 	return func(aud string) string {
 		u, err := url.Parse(aud)
 		if err != nil {
@@ -36,14 +36,14 @@ func ClusterKeyNameFunc(projectID, location, keyRing string) func(string) string
 	}
 }
 
-func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, codeKey hmacpb.Key, refreshKey signpb.Key, clusterKey ClusterKeyNamer) hubauth.IdPService {
+func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, codeKey hmacpb.Key, refreshKey signpb.Key, audienceKey AudienceKeyNamer) hubauth.IdPService {
 	return &idpService{
-		db:         db,
-		rp:         rp,
-		kms:        kms,
-		codeKey:    codeKey,
-		refreshKey: refreshKey,
-		clusterKey: clusterKey,
+		db:          db,
+		rp:          rp,
+		kms:         kms,
+		codeKey:     codeKey,
+		refreshKey:  refreshKey,
+		audienceKey: audienceKey,
 	}
 }
 
@@ -52,9 +52,9 @@ type idpService struct {
 	rp  rp.AuthService
 	kms kmssign.KMSClient
 
-	codeKey    hmacpb.Key
-	refreshKey signpb.Key
-	clusterKey ClusterKeyNamer
+	codeKey     hmacpb.Key
+	refreshKey  signpb.Key
+	audienceKey AudienceKeyNamer
 }
 
 func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeRedirect, error) {
@@ -289,7 +289,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 	})
 
 	g.Go(func() error {
-		cluster, err := s.db.GetCluster(ctx, req.Audience)
+		audience, err := s.db.GetAudience(ctx, req.Audience)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrNotFound) {
 				return &hubauth.OAuthError{
@@ -297,24 +297,24 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 					Description: "unknown audience",
 				}
 			}
-			return fmt.Errorf("idp: error getting cluster %s: %w", req.Audience, err)
+			return fmt.Errorf("idp: error getting audience %s: %w", req.Audience, err)
 		}
 		foundClient := false
-		for _, c := range cluster.ClientIDs {
+		for _, c := range audience.ClientIDs {
 			if req.ClientID == c {
 				foundClient = true
 				break
 			}
 		}
 		if !foundClient {
-			clog.Set(ctx, zap.Strings("cluster_client_ids", cluster.ClientIDs))
+			clog.Set(ctx, zap.Strings("audience_client_ids", audience.ClientIDs))
 			return &hubauth.OAuthError{
 				Code:        "invalid_client",
 				Description: "unknown client for audience",
 			}
 		}
 
-		err = s.checkUser(ctx, cluster, codeInfo.UserId)
+		err = s.checkUser(ctx, audience, codeInfo.UserId)
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return &hubauth.OAuthError{
 				Code:        "invalid_grant",
@@ -377,7 +377,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		var err error
 		var accessTokenID string
 		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
-			keyName:   s.clusterKey(req.Audience),
+			keyName:   s.audienceKey(req.Audience),
 			clientID:  req.ClientID,
 			userID:    codeInfo.UserId,
 			userEmail: codeInfo.UserEmail,
@@ -448,7 +448,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		cluster, err := s.db.GetCluster(ctx, req.Audience)
+		audience, err := s.db.GetAudience(ctx, req.Audience)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrNotFound) {
 				return &hubauth.OAuthError{
@@ -456,24 +456,24 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 					Description: "unknown audience",
 				}
 			}
-			return fmt.Errorf("idp: error getting cluster %s: %w", req.Audience, err)
+			return fmt.Errorf("idp: error getting audience %s: %w", req.Audience, err)
 		}
 		foundClient := false
-		for _, c := range cluster.ClientIDs {
+		for _, c := range audience.ClientIDs {
 			if req.ClientID == c {
 				foundClient = true
 				break
 			}
 		}
 		if !foundClient {
-			clog.Set(ctx, zap.Strings("cluster_client_ids", cluster.ClientIDs))
+			clog.Set(ctx, zap.Strings("audience_client_ids", audience.ClientIDs))
 			return &hubauth.OAuthError{
 				Code:        "invalid_client",
 				Description: "unknown client for audience",
 			}
 		}
 
-		err = s.checkUser(ctx, cluster, oldToken.UserId)
+		err = s.checkUser(ctx, audience, oldToken.UserId)
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return &hubauth.OAuthError{
 				Code:        "invalid_grant",
@@ -534,7 +534,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	g.Go(func() error {
 		var err error
 		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
-			keyName:   s.clusterKey(req.Audience),
+			keyName:   s.audienceKey(req.Audience),
 			clientID:  req.ClientID,
 			userID:    oldToken.UserId,
 			userEmail: oldToken.UserEmail,
@@ -564,7 +564,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	}, nil
 }
 
-func (s *idpService) checkUser(ctx context.Context, cluster *hubauth.Cluster, userID string) error {
+func (s *idpService) checkUser(ctx context.Context, audience *hubauth.Audience, userID string) error {
 	groups, err := s.db.GetCachedMemberGroups(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("idp: error getting cached groups for user: %w", err)
@@ -573,7 +573,7 @@ func (s *idpService) checkUser(ctx context.Context, cluster *hubauth.Cluster, us
 	// TODO: log allowed groups and cached groups
 	allowed := false
 outer:
-	for _, p := range cluster.Policies {
+	for _, p := range audience.Policies {
 		for _, allowedGroup := range p.Groups {
 			for _, g := range groups {
 				if g == allowedGroup {

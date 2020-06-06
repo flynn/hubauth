@@ -15,7 +15,7 @@ import (
 
 const (
 	kindClient            = "Client"
-	kindCluster           = "Cluster"
+	kindAudience          = "Audience"
 	kindCode              = "Code"
 	kindRefreshToken      = "RefreshToken"
 	kindDomain            = "GoogleDomain"

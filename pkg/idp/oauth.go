@@ -564,7 +564,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	}, nil
 }
 
-func (s *idpService) checkUser(ctx context.Context, audience *hubauth.Audience, userID string) error {
+func (s *idpService) checkUser(ctx context.Context, cluster *hubauth.Audience, userID string) error {
 	groups, err := s.db.GetCachedMemberGroups(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("idp: error getting cached groups for user: %w", err)
@@ -573,7 +573,7 @@ func (s *idpService) checkUser(ctx context.Context, audience *hubauth.Audience, 
 	// TODO: log allowed groups and cached groups
 	allowed := false
 outer:
-	for _, p := range audience.Policies {
+	for _, p := range cluster.Policies {
 		for _, allowedGroup := range p.Groups {
 			for _, g := range groups {
 				if g == allowedGroup {
@@ -691,7 +691,7 @@ func (s *idpService) signAccessToken(ctx context.Context, t *accessTokenData) (t
 	idBytes := sha256.Sum256(tokenBytes)
 
 	token = base64.URLEncoding.EncodeToString(tokenBytes)
-	id = base64.URLEncoding.EncodeToString(idBytes[:])
+	id = strings.TrimRight(base64.URLEncoding.EncodeToString(idBytes[:]), "=")
 	span.AddAttributes(trace.StringAttribute("access_token_id", id))
 	return token, id, nil
 }

@@ -1,7 +1,9 @@
 steps:
-- name: 'gcr.io/kaniko-project/executor'
+- name: 'gcr.io/kaniko-project/executor:perf'
   id: build
   args: [
+    '--snapshotMode=redo',
+    '--use-new-run=true',
     '--dockerfile=build.Dockerfile',
     '--context=.',
     '--destination=gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',

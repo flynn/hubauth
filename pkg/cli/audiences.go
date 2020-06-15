@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"net/url"
 	"os"
@@ -16,6 +18,7 @@ type audiencesCmd struct {
 	List      audiencesListCmd      `kong:"cmd,help='list audiences',default:'1'"`
 	Create    audiencesCreateCmd    `kong:"cmd,help='create audience'"`
 	SetPolicy audiencesSetPolicyCmd `kong:"cmd,name='set-policy',help='set audience auth policy'"`
+	Key       audiencesKeyCmd       `kong:"cmd,help='get audience public key'"`
 }
 
 type audiencesListCmd struct{}
@@ -101,4 +104,36 @@ func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
 		},
 	}
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})
+}
+
+type audiencesKeyCmd struct {
+	URL         string `kong:"required,name='audience-url',help='audience URL'"`
+	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
+	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
+}
+
+func (c *audiencesKeyCmd) Run(cfg *Config) error {
+	ctx := context.Background()
+
+	u, err := url.Parse(c.URL)
+	if err != nil {
+		return fmt.Errorf("error parsing audience URL: %s", err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("audience URL must be https://")
+	}
+	if u.Path != "" {
+		return fmt.Errorf("unexpected path in audience URL")
+	}
+
+	res, err := cfg.KMS.GetPublicKey(ctx, &kms.GetPublicKeyRequest{
+		Name: fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", cfg.ProjectID, c.KMSLocation, c.KMSKeyring, strings.Replace(u.Host, ".", "_", -1)),
+	})
+	if err != nil {
+		return err
+	}
+
+	b, _ := pem.Decode([]byte(res.Pem))
+	fmt.Println(base64.URLEncoding.EncodeToString(b.Bytes))
+	return nil
 }

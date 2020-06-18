@@ -64,11 +64,13 @@ type AudienceStore interface {
 }
 
 type Audience struct {
-	URL        string
-	ClientIDs  []string
-	Policies   []*GoogleUserPolicy
-	CreateTime time.Time
-	UpdateTime time.Time
+	URL        string              `json:"url"`
+	Name       string              `json:"name"`
+	Type       string              `json:"type"`
+	ClientIDs  []string            `json:"-"`
+	Policies   []*GoogleUserPolicy `json:"-"`
+	CreateTime time.Time           `json:"-"`
+	UpdateTime time.Time           `json:"-"`
 }
 
 type GoogleUserPolicy struct {

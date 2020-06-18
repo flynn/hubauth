@@ -19,6 +19,8 @@ func buildAudience(c *hubauth.Audience) *audience {
 	}
 	return &audience{
 		Key:        audienceKey(c.URL),
+		Name:       c.Name,
+		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
 		Policies:   policies,
 		CreateTime: now,
@@ -28,6 +30,8 @@ func buildAudience(c *hubauth.Audience) *audience {
 
 type audience struct {
 	Key        *datastore.Key `datastore:"__key__"`
+	Name       string
+	Type       string
 	ClientIDs  []string
 	Policies   []googleUserPolicy `datastore:",flatten"`
 	CreateTime time.Time
@@ -59,6 +63,8 @@ func (c *audience) Export() *hubauth.Audience {
 	}
 	return &hubauth.Audience{
 		URL:        c.Key.Name,
+		Name:       c.Name,
+		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
 		Policies:   policies,
 		CreateTime: c.CreateTime,

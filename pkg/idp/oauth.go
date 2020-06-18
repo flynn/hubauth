@@ -211,7 +211,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 }
 
 func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
-	codeBytes, err := base64.URLEncoding.DecodeString(padBase64(req.Code))
+	codeBytes, err := base64Decode(req.Code)
 	if err != nil {
 		return nil, &hubauth.OAuthError{
 			Code:        "invalid_grant",
@@ -225,8 +225,8 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			Description: "invalid code",
 		}
 	}
-	codeID := strings.TrimRight(base64.URLEncoding.EncodeToString(codeInfo.Key), "=")
-	codeSecret := strings.TrimRight(base64.URLEncoding.EncodeToString(codeInfo.Secret), "=")
+	codeID := base64Encode(codeInfo.Key)
+	codeSecret := base64Encode(codeInfo.Secret)
 
 	g, ctx := errgroup.WithContext(parentCtx)
 
@@ -273,7 +273,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		}
 
 		chall := sha256.Sum256([]byte(req.CodeVerifier))
-		challenge := strings.TrimRight(base64.URLEncoding.EncodeToString(chall[:]), "=")
+		challenge := base64Encode(chall[:])
 		if code.PKCEChallenge != challenge {
 			clog.Set(ctx,
 				zap.String("code_challenge", code.PKCEChallenge),
@@ -289,6 +289,9 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 	})
 
 	g.Go(func() error {
+		if req.Audience == "" {
+			return nil
+		}
 		audience, err := s.db.GetAudience(ctx, req.Audience)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrNotFound) {
@@ -368,12 +371,16 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			IssueTime: now,
 			UserID:    codeInfo.UserId,
 			UserEmail: codeInfo.UserEmail,
+			ClientID:  req.ClientID,
 		})
 		return err
 	})
 
 	var accessToken string
 	g.Go(func() error {
+		if req.Audience == "" {
+			return nil
+		}
 		var err error
 		var accessTokenID string
 		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
@@ -396,58 +403,33 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		return nil, err
 	}
 
-	return &hubauth.AccessToken{
+	res := &hubauth.AccessToken{
 		RefreshToken:          refreshToken,
 		AccessToken:           accessToken,
-		TokenType:             "Bearer",
 		Nonce:                 code.Nonce,
-		ExpiresIn:             int(accessTokenDuration / time.Second),
 		RedirectURI:           req.RedirectURI,
 		RefreshTokenExpiresIn: int(client.RefreshTokenExpiry / time.Second),
-	}, nil
-}
-
-func rpcError(err error) {
-
+	}
+	if res.AccessToken != "" {
+		res.ExpiresIn = int(accessTokenDuration / time.Second)
+		res.TokenType = "Bearer"
+	}
+	return res, nil
 }
 
 func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.AccessToken, error) {
-	tokenMsg, err := base64.URLEncoding.DecodeString(req.RefreshToken)
+	oldToken, err := s.decodeRefreshToken(ctx, req.RefreshToken)
 	if err != nil {
-		clog.Set(ctx, zap.NamedError("decode_error", err))
-		return nil, &hubauth.OAuthError{
-			Code:        "invalid_grant",
-			Description: "malformed refresh_token",
-		}
-	}
-	oldToken := &pb.RefreshToken{}
-	if err := signpb.VerifyUnmarshal(s.refreshKey, tokenMsg, oldToken); err != nil {
-		clog.Set(ctx, zap.NamedError("unmarshal_error", err))
-		return nil, &hubauth.OAuthError{
-			Code:        "invalid_grant",
-			Description: "invalid refresh_token",
-		}
+		return nil, err
 	}
 	now := time.Now()
-	oldIssueTime, err := ptypes.Timestamp(oldToken.IssueTime)
-	if err != nil {
-		clog.Set(ctx, zap.NamedError("issue_time_error", err))
-		return nil, &hubauth.OAuthError{
-			Code:        "invalid_grant",
-			Description: "invalid refresh_token",
-		}
-	}
-	rtKey := strings.TrimRight(base64.URLEncoding.EncodeToString(oldToken.Key), "=")
-	clog.Set(ctx,
-		zap.String("refresh_token_id", rtKey),
-		zap.Time("refresh_token_issue_time", oldIssueTime),
-		zap.String("refresh_token_user_id", oldToken.UserId),
-		zap.String("refresh_token_user_email", oldToken.UserEmail),
-	)
 
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
+		if req.Audience == "" {
+			return nil
+		}
 		audience, err := s.db.GetAudience(ctx, req.Audience)
 		if err != nil {
 			if errors.Is(err, hubauth.ErrNotFound) {
@@ -473,7 +455,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			}
 		}
 
-		err = s.checkUser(ctx, audience, oldToken.UserId)
+		err = s.checkUser(ctx, audience, oldToken.UserID)
 		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 			return &hubauth.OAuthError{
 				Code:        "invalid_grant",
@@ -486,7 +468,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	var newToken *hubauth.RefreshToken
 	g.Go(func() error {
 		var err error
-		newToken, err = s.db.RenewRefreshToken(ctx, req.ClientID, rtKey, oldIssueTime, now)
+		newToken, err = s.db.RenewRefreshToken(ctx, req.ClientID, oldToken.ID, oldToken.IssueTime, now)
 		if err != nil {
 			switch {
 			case errors.Is(err, hubauth.ErrNotFound):
@@ -497,7 +479,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			case errors.Is(err, hubauth.ErrRefreshTokenVersionMismatch):
 				return &hubauth.OAuthError{
 					Code:        "invalid_grant",
-					Description: "unexpected refresh_token version",
+					Description: "unexpected refresh_token issue time",
 				}
 			case errors.Is(err, hubauth.ErrClientIDMismatch):
 				return &hubauth.OAuthError{
@@ -512,6 +494,11 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			}
 			return fmt.Errorf("idp: error renewing refresh token: %w", err)
 		}
+		clog.Set(ctx,
+			zap.String("issued_refresh_token_id", newToken.ID),
+			zap.Time("issued_refresh_token_issue_time", newToken.IssueTime),
+			zap.Time("issued_refresh_token_expiry", newToken.ExpiryTime),
+		)
 		return nil
 	})
 
@@ -519,10 +506,11 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	g.Go(func() error {
 		var err error
 		refreshToken, err = s.signRefreshToken(ctx, &refreshTokenData{
-			Key:       rtKey,
+			Key:       oldToken.ID,
 			IssueTime: now,
-			UserID:    oldToken.UserId,
+			UserID:    oldToken.UserID,
 			UserEmail: oldToken.UserEmail,
+			ClientID:  req.ClientID,
 		})
 		if err != nil {
 			return err
@@ -532,13 +520,20 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 
 	var accessToken, accessTokenID string
 	g.Go(func() error {
+		if req.Audience == "" {
+			return nil
+		}
 		var err error
 		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
 			keyName:   s.audienceKey(req.Audience),
 			clientID:  req.ClientID,
-			userID:    oldToken.UserId,
+			userID:    oldToken.UserID,
 			userEmail: oldToken.UserEmail,
 		})
+		clog.Set(ctx,
+			zap.String("issued_access_token_id", accessTokenID),
+			zap.Duration("issued_access_token_expires_in", accessTokenDuration),
+		)
 		return err
 	})
 
@@ -546,22 +541,133 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		return nil, err
 	}
 
-	clog.Set(ctx,
-		zap.String("issued_access_token_id", accessTokenID),
-		zap.Duration("issued_access_token_expires_in", accessTokenDuration),
-		zap.String("issued_refresh_token_id", newToken.ID),
-		zap.Time("issued_refresh_token_issue_time", newToken.IssueTime),
-		zap.Time("issued_refresh_token_expiry", newToken.ExpiryTime),
-	)
-
-	return &hubauth.AccessToken{
+	res := &hubauth.AccessToken{
 		RefreshToken:          refreshToken,
 		AccessToken:           accessToken,
-		TokenType:             "Bearer",
-		ExpiresIn:             int(accessTokenDuration / time.Second),
 		RedirectURI:           newToken.RedirectURI,
 		RefreshTokenExpiresIn: int(time.Until(newToken.ExpiryTime) / time.Second),
-	}, nil
+	}
+	if res.AccessToken != "" {
+		res.TokenType = "Bearer"
+		res.ExpiresIn = int(accessTokenDuration / time.Second)
+	}
+	return res, nil
+}
+
+func (s *idpService) ListAudiences(ctx context.Context, req *hubauth.ListAudiencesRequest) (*hubauth.ListAudiencesResponse, error) {
+	rt, err := s.decodeRefreshToken(ctx, req.RefreshToken)
+	if err != nil {
+		return nil, err
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		dbToken, err := s.db.GetRefreshToken(ctx, rt.ID)
+		if err != nil {
+			if errors.Is(err, hubauth.ErrNotFound) {
+				return &hubauth.OAuthError{
+					Code:        "invalid_grant",
+					Description: "refresh token not found",
+				}
+			}
+			return fmt.Errorf("idp: error getting refresh token %s: %w", rt.ID, err)
+		}
+		if !dbToken.IssueTime.Truncate(time.Millisecond).Equal(rt.IssueTime.Truncate(time.Millisecond)) {
+			return &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "unexpected refresh token issue time",
+			}
+		}
+		if time.Now().After(dbToken.ExpiryTime) {
+			return &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "refresh_token expired",
+			}
+		}
+		return nil
+	})
+
+	var userGroups []string
+	g.Go(func() error {
+		var err error
+		userGroups, err = s.db.GetCachedMemberGroups(ctx, rt.UserID)
+		if err != nil {
+			return fmt.Errorf("idp: error getting cached groups for user %s: %w", rt.UserID, err)
+		}
+		return nil
+	})
+
+	var clientAudiences []*hubauth.Audience
+	g.Go(func() error {
+		var err error
+		clientAudiences, err = s.db.ListAudiencesForClient(ctx, rt.ClientID)
+		if err != nil {
+			return fmt.Errorf("idp: error listing audiences for client %s: %w", rt.ClientID, err)
+		}
+		return nil
+	})
+
+	res := &hubauth.ListAudiencesResponse{
+		Audiences: make([]*hubauth.Audience, 0, len(clientAudiences)),
+	}
+outer:
+	for _, aud := range clientAudiences {
+		for _, p := range aud.Policies {
+			for _, allowedGroup := range p.Groups {
+				for _, userGroup := range userGroups {
+					if allowedGroup == userGroup {
+						res.Audiences = append(res.Audiences, aud)
+						continue outer
+					}
+				}
+			}
+		}
+	}
+
+	return res, nil
+}
+
+func (s *idpService) decodeRefreshToken(ctx context.Context, t string) (*hubauth.RefreshToken, error) {
+	tokenMsg, err := base64Decode(t)
+	if err != nil {
+		clog.Set(ctx, zap.NamedError("decode_error", err))
+		return nil, &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "malformed refresh_token",
+		}
+	}
+	token := &pb.RefreshToken{}
+	if err := signpb.VerifyUnmarshal(s.refreshKey, tokenMsg, token); err != nil {
+		clog.Set(ctx, zap.NamedError("unmarshal_error", err))
+		return nil, &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "invalid refresh_token",
+		}
+	}
+	issueTime, err := ptypes.Timestamp(token.IssueTime)
+	if err != nil {
+		clog.Set(ctx, zap.NamedError("issue_time_error", err))
+		return nil, &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "invalid refresh_token",
+		}
+	}
+	res := &hubauth.RefreshToken{
+		ID:        base64Encode(token.Key),
+		ClientID:  base64Encode(token.ClientId),
+		UserID:    token.UserId,
+		UserEmail: token.UserEmail,
+		IssueTime: issueTime,
+	}
+	clog.Set(ctx,
+		zap.String("refresh_token_id", res.ID),
+		zap.Time("refresh_token_issue_time", issueTime),
+		zap.String("refresh_token_user_id", res.UserID),
+		zap.String("refresh_token_user_email", res.UserEmail),
+		zap.String("refresh_token_client_id", res.ClientID),
+	)
+	return res, nil
 }
 
 func (s *idpService) checkUser(ctx context.Context, cluster *hubauth.Audience, userID string) error {
@@ -598,12 +704,12 @@ type codeData struct {
 }
 
 func (s *idpService) signCode(code *codeData) (string, error) {
-	keyBytes, err := base64.URLEncoding.DecodeString(padBase64(code.Key))
+	keyBytes, err := base64Decode(code.Key)
 	if err != nil {
 		return "", fmt.Errorf("idp: error decoding key secret: %w", err)
 	}
 
-	secretBytes, err := base64.URLEncoding.DecodeString(padBase64(code.Secret))
+	secretBytes, err := base64Decode(code.Secret)
 	if err != nil {
 		return "", fmt.Errorf("idp: error decoding code secret: %w", err)
 	}
@@ -617,7 +723,7 @@ func (s *idpService) signCode(code *codeData) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("idp: error encoding signing code: %w", err)
 	}
-	return strings.TrimRight(base64.URLEncoding.EncodeToString(res), "="), nil
+	return base64Encode(res), nil
 }
 
 type refreshTokenData struct {
@@ -625,6 +731,7 @@ type refreshTokenData struct {
 	IssueTime time.Time
 	UserID    string
 	UserEmail string
+	ClientID  string
 }
 
 func (s *idpService) signRefreshToken(ctx context.Context, t *refreshTokenData) (string, error) {
@@ -636,9 +743,14 @@ func (s *idpService) signRefreshToken(ctx context.Context, t *refreshTokenData) 
 	)
 	defer span.End()
 
-	keyBytes, err := base64.URLEncoding.DecodeString(padBase64(t.Key))
+	keyBytes, err := base64Decode(t.Key)
 	if err != nil {
 		return "", fmt.Errorf("idp: error decoding refresh token key %q: %w", t.Key, err)
+	}
+
+	clientIDBytes, err := base64Decode(t.ClientID)
+	if err != nil {
+		return "", fmt.Errorf("idp: error decoding client id %q: %w", t.ClientID, err)
 	}
 
 	iss, _ := ptypes.TimestampProto(t.IssueTime)
@@ -647,12 +759,13 @@ func (s *idpService) signRefreshToken(ctx context.Context, t *refreshTokenData) 
 		IssueTime: iss,
 		UserId:    t.UserID,
 		UserEmail: t.UserEmail,
+		ClientId:  clientIDBytes,
 	}
 	tokenBytes, err := signpb.SignMarshal(ctx, s.refreshKey, msg)
 	if err != nil {
 		return "", fmt.Errorf("idp: error signing refresh token: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(tokenBytes), nil
+	return base64Encode(tokenBytes), nil
 }
 
 const accessTokenDuration = 5 * time.Minute
@@ -691,14 +804,18 @@ func (s *idpService) signAccessToken(ctx context.Context, t *accessTokenData) (t
 	idBytes := sha256.Sum256(tokenBytes)
 
 	token = base64.URLEncoding.EncodeToString(tokenBytes)
-	id = strings.TrimRight(base64.URLEncoding.EncodeToString(idBytes[:]), "=")
+	id = base64Encode(idBytes[:])
 	span.AddAttributes(trace.StringAttribute("access_token_id", id))
 	return token, id, nil
 }
 
-func padBase64(s string) string {
+func base64Decode(s string) ([]byte, error) {
 	if m := len(s) % 4; m != 0 {
 		s += strings.Repeat("=", 4-m)
 	}
-	return s
+	return base64.URLEncoding.DecodeString(s)
+}
+
+func base64Encode(b []byte) string {
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(b), "=")
 }

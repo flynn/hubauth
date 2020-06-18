@@ -55,9 +55,18 @@ type RefreshTokenRequest struct {
 	RefreshToken string
 }
 
+type ListAudiencesRequest struct {
+	RefreshToken string
+}
+
+type ListAudiencesResponse struct {
+	Audiences []*Audience `json:"audiences"`
+}
+
 type IdPService interface {
 	AuthorizeUserRedirect(ctx context.Context, req *AuthorizeUserRequest) (*AuthorizeRedirect, error)
 	AuthorizeCodeRedirect(ctx context.Context, req *AuthorizeCodeRequest) (*AuthorizeRedirect, error)
 	ExchangeCode(ctx context.Context, req *ExchangeCodeRequest) (*AccessToken, error)
 	RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*AccessToken, error)
+	ListAudiences(ctx context.Context, req *ListAudiencesRequest) (*ListAudiencesResponse, error)
 }

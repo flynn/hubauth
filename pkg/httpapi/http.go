@@ -65,6 +65,8 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		a.AuthorizeCode(w, req)
 	case req.Method == "POST" && req.URL.Path == "/token":
 		a.Token(w, req)
+	case req.Method == "GET" && req.URL.Path == "/audiences":
+		a.Audiences(w, req)
 	case req.Method == "GET" && req.URL.Path == "/":
 		http.Redirect(w, req, "https://flynn.io/", http.StatusFound)
 	case req.Method == "GET" && req.URL.Path == "/privacy":
@@ -269,15 +271,18 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 
 	clog.Set(req.Context(), zap.Object("params", zapURLValuesMarshaler{req.PostForm}))
 
-	audURL, err := url.Parse(req.PostForm.Get("audience"))
-	if err != nil || audURL.Scheme != "https" || audURL.Path != "" || audURL.Host == "" {
-		a.handleErr(w, req, &hubauth.OAuthError{
-			Code:        "invalid_request",
-			Description: "invalid audience",
-		})
-		return
+	var aud string
+	if u := req.PostForm.Get("audience"); u != "" {
+		audURL, err := url.Parse(u)
+		if err != nil || audURL.Scheme != "https" || audURL.Path != "" || audURL.Host == "" {
+			a.handleErr(w, req, &hubauth.OAuthError{
+				Code:        "invalid_request",
+				Description: "invalid audience",
+			})
+			return
+		}
+		aud = "https://" + strings.SplitN(audURL.Host, ":", 2)[0]
 	}
-	aud := "https://" + strings.SplitN(audURL.Host, ":", 2)[0]
 
 	if req.PostForm.Get("client_id") == "" {
 		a.handleErr(w, req, &hubauth.OAuthError{
@@ -288,6 +293,7 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var res *hubauth.AccessToken
+	var err error
 	switch req.Form.Get("grant_type") {
 	case "authorization_code":
 		res, err = a.IdP.ExchangeCode(req.Context(), &hubauth.ExchangeCodeRequest{
@@ -329,6 +335,29 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+func (a *api) Audiences(w http.ResponseWriter, req *http.Request) {
+	auth := req.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "RefreshToken ") {
+		a.handleErr(w, req, &hubauth.OAuthError{
+			Code:        "invalid_request",
+			Description: "missing refresh token authorization",
+		})
+		return
+	}
+	rt := strings.TrimPrefix(auth, "RefreshToken ")
+
+	res, err := a.IdP.ListAudiences(req.Context(), &hubauth.ListAudiencesRequest{RefreshToken: rt})
+	if err != nil {
+		a.handleErr(w, req, err)
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
 	json.NewEncoder(w).Encode(res)
 }
 

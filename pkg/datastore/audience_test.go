@@ -16,6 +16,8 @@ func TestAudienceCRD(t *testing.T) {
 
 	a := &hubauth.Audience{
 		URL:       "https://controller.example.com",
+		Name:      "Test Cluster",
+		Type:      "flynn_controller",
 		ClientIDs: []string{"a"},
 		Policies: []*hubauth.GoogleUserPolicy{
 			{

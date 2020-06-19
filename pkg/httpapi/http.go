@@ -67,6 +67,12 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		a.Token(w, req)
 	case req.Method == "GET" && req.URL.Path == "/audiences":
 		a.Audiences(w, req)
+	case req.Method == "OPTIONS" && req.URL.Path == "/audiences":
+		w.Header().Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+		w.WriteHeader(http.StatusOK)
 	case req.Method == "GET" && req.URL.Path == "/":
 		http.Redirect(w, req, "https://flynn.io/", http.StatusFound)
 	case req.Method == "GET" && req.URL.Path == "/privacy":
@@ -386,7 +392,6 @@ func (a *api) handleErr(w http.ResponseWriter, req *http.Request, err error) {
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Content-Type", "application/json")
 	if oe.Code == "server_error" {
 		w.WriteHeader(http.StatusInternalServerError)

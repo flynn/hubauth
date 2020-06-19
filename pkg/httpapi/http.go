@@ -385,7 +385,8 @@ func (a *api) handleErr(w http.ResponseWriter, req *http.Request, err error) {
 		http.Redirect(w, req, oe.RedirectURI(ci.RedirectURI, ci.State, ci.Fragment), http.StatusFound)
 		return
 	}
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Content-Type", "application/json")
 	if oe.Code == "server_error" {
 		w.WriteHeader(http.StatusInternalServerError)

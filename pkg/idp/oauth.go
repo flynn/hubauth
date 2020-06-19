@@ -608,6 +608,10 @@ func (s *idpService) ListAudiences(ctx context.Context, req *hubauth.ListAudienc
 		return nil
 	})
 
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
 	res := &hubauth.ListAudiencesResponse{
 		Audiences: make([]*hubauth.Audience, 0, len(clientAudiences)),
 	}

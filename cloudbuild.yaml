@@ -8,7 +8,7 @@ steps:
     '--context=.',
     '--destination=gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',
   ]
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
   waitFor: ['build']
   args: [
     'gcloud', 'beta', 'run', 'deploy',
@@ -18,7 +18,7 @@ steps:
     '--region', '$_DEPLOY_REGION_PRIMARY',
     '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA',
   ]
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
   waitFor: ['build']
   args: [
     'gcloud', 'beta', 'run', 'deploy',
@@ -28,7 +28,7 @@ steps:
     '--region', '$_DEPLOY_REGION_FALLBACK',
     '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA',
   ]
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
   waitFor: ['build']
   args: [
     'gcloud', 'beta', 'run', 'deploy',

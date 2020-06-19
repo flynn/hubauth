@@ -11,7 +11,7 @@ steps:
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
   waitFor: ['build']
   args: [
-    'beta', 'run', 'deploy',
+    'gcloud', 'beta', 'run', 'deploy',
     '$_APP-ext-$_DEPLOY_REGION_PRIMARY',
     '--platform', 'managed',
     '--image', 'gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',
@@ -21,7 +21,7 @@ steps:
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
   waitFor: ['build']
   args: [
-    'beta', 'run', 'deploy',
+    'gcloud', 'beta', 'run', 'deploy',
     '$_APP-ext-$_DEPLOY_REGION_FALLBACK',
     '--platform', 'managed',
     '--image', 'gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',
@@ -31,7 +31,7 @@ steps:
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
   waitFor: ['build']
   args: [
-    'beta', 'run', 'deploy',
+    'gcloud', 'beta', 'run', 'deploy',
     '$_APP-int-$_DEPLOY_REGION_PRIMARY',
     '--platform', 'managed',
     '--image', 'gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',

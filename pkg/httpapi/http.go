@@ -57,6 +57,9 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	w := &loggingResponseWriter{ResponseWriter: rw}
 
+	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
 	startTime := time.Now()
 	switch {
 	case req.Method == "GET" && req.URL.Path == "/authorize":
@@ -263,6 +266,14 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 		MaxAge: -1,
 	})
 	w.Header().Set("Referrer-Policy", "no-referrer")
+
+	if res.DisplayCode != "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf8")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'")
+		codeDisplayHTML(res.DisplayCode, w)
+		return
+	}
+
 	http.Redirect(w, req, res.URL, http.StatusFound)
 }
 

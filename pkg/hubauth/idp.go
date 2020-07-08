@@ -23,9 +23,11 @@ type AuthorizeUserRequest struct {
 	ResponseMode  string
 }
 
-type AuthorizeRedirect struct {
+type AuthorizeResponse struct {
 	URL     string
 	RPState string
+
+	DisplayCode string
 }
 
 type ExchangeCodeRequest struct {
@@ -64,8 +66,8 @@ type ListAudiencesResponse struct {
 }
 
 type IdPService interface {
-	AuthorizeUserRedirect(ctx context.Context, req *AuthorizeUserRequest) (*AuthorizeRedirect, error)
-	AuthorizeCodeRedirect(ctx context.Context, req *AuthorizeCodeRequest) (*AuthorizeRedirect, error)
+	AuthorizeUserRedirect(ctx context.Context, req *AuthorizeUserRequest) (*AuthorizeResponse, error)
+	AuthorizeCodeRedirect(ctx context.Context, req *AuthorizeCodeRequest) (*AuthorizeResponse, error)
 	ExchangeCode(ctx context.Context, req *ExchangeCodeRequest) (*AccessToken, error)
 	RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*AccessToken, error)
 	ListAudiences(ctx context.Context, req *ListAudiencesRequest) (*ListAudiencesResponse, error)

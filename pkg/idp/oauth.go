@@ -26,6 +26,8 @@ import (
 
 type AudienceKeyNamer func(audience string) string
 
+const oobRedirectURI = "urn:ietf:wg:oauth:2.0:oob"
+
 func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) string {
 	return func(aud string) string {
 		u, err := url.Parse(aud)
@@ -57,7 +59,7 @@ type idpService struct {
 	audienceKey AudienceKeyNamer
 }
 
-func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeRedirect, error) {
+func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeResponse, error) {
 	client, err := s.db.GetClient(ctx, req.ClientID)
 	if err != nil {
 		if errors.Is(err, hubauth.ErrNotFound) {
@@ -82,12 +84,14 @@ func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 		}
 	}
 
-	ci := hubauth.GetClientInfo(ctx)
-	ci.RedirectURI = req.RedirectURI
-	ci.State = req.ClientState
-	ci.Fragment = req.ResponseMode == "fragment"
+	if req.RedirectURI != oobRedirectURI {
+		ci := hubauth.GetClientInfo(ctx)
+		ci.RedirectURI = req.RedirectURI
+		ci.State = req.ClientState
+		ci.Fragment = req.ResponseMode == "fragment"
+	}
 
-	if len(req.ClientState) == 0 {
+	if len(req.ClientState) == 0 && req.RedirectURI != oobRedirectURI {
 		return nil, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "missing state parameter",
@@ -115,7 +119,7 @@ func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 	if err != nil {
 		return nil, fmt.Errorf("idp: error generating RP redirect: %w", err)
 	}
-	return &hubauth.AuthorizeRedirect{
+	return &hubauth.AuthorizeResponse{
 		URL:     res.URL,
 		RPState: res.State,
 	}, nil
@@ -123,11 +127,13 @@ func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 
 const codeExpiry = 30 * time.Second
 
-func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeCodeRequest) (*hubauth.AuthorizeRedirect, error) {
-	ci := hubauth.GetClientInfo(ctx)
-	ci.RedirectURI = req.RedirectURI
-	ci.State = req.ClientState
-	ci.Fragment = req.ResponseMode == "fragment"
+func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeCodeRequest) (*hubauth.AuthorizeResponse, error) {
+	if req.RedirectURI != oobRedirectURI {
+		ci := hubauth.GetClientInfo(ctx)
+		ci.RedirectURI = req.RedirectURI
+		ci.State = req.ClientState
+		ci.Fragment = req.ResponseMode == "fragment"
+	}
 
 	token, err := s.rp.Exchange(ctx, &rp.RedirectResult{
 		State:  req.RPState,
@@ -199,6 +205,9 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		zap.String("issued_code_id", codeID),
 		zap.Time("issued_code_expiry", code.ExpiryTime),
 	)
+	if req.RedirectURI == oobRedirectURI {
+		return &hubauth.AuthorizeResponse{DisplayCode: codeRes}, nil
+	}
 	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == "fragment", map[string]string{
 		"code":  codeRes,
 		"state": req.ClientState,
@@ -207,7 +216,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		return nil, fmt.Errorf("idp: error parsing redirect URI %q", req.RedirectURI)
 	}
 
-	return &hubauth.AuthorizeRedirect{URL: dest}, nil
+	return &hubauth.AuthorizeResponse{URL: dest}, nil
 }
 
 func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {
@@ -264,6 +273,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 				Description: "client_id mismatch",
 			}
 		}
+
 		if req.RedirectURI != code.RedirectURI {
 			clog.Set(ctx, zap.String("code_redirect_uri", code.RedirectURI))
 			return &hubauth.OAuthError{

@@ -17,16 +17,14 @@ require (
 	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20200604202706-70a84ac30bf9
 	golang.org/x/exp/errors v0.0.0-20200513190911-00229845015e
-	golang.org/x/mod v0.3.0 // indirect
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
 	golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
 	golang.org/x/sys v0.0.0-20200615200032-f1bc736245b1 // indirect
 	golang.org/x/text v0.3.3 // indirect
 	golang.org/x/tools v0.0.0-20200618155944-c7475b9d7fb2 // indirect
-	google.golang.org/api v0.28.0
+	google.golang.org/api v0.29.0
 	google.golang.org/genproto v0.0.0-20200618031413-b414f8b61790
 	google.golang.org/grpc v1.29.1
 	google.golang.org/protobuf v1.24.0
-	honnef.co/go/tools v0.0.1-2020.1.4 // indirect
 )

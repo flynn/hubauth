@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go v0.58.0
 	cloud.google.com/go/datastore v1.2.0
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.1
-	github.com/alecthomas/kong v0.2.9
+	github.com/alecthomas/kong v0.2.11
 	github.com/aws/aws-sdk-go v1.32.5 // indirect
 	github.com/golang/protobuf v1.4.2
 	github.com/google/go-cmp v0.5.0 // indirect
@@ -17,7 +17,6 @@ require (
 	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20200604202706-70a84ac30bf9
 	golang.org/x/exp/errors v0.0.0-20200513190911-00229845015e
-	golang.org/x/mod v0.3.0 // indirect
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
 	golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
@@ -28,5 +27,4 @@ require (
 	google.golang.org/genproto v0.0.0-20200618031413-b414f8b61790
 	google.golang.org/grpc v1.29.1
 	google.golang.org/protobuf v1.24.0
-	honnef.co/go/tools v0.0.1-2020.1.4 // indirect
 )

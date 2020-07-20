@@ -2,8 +2,8 @@
 
 set -eo pipefail
 
-protoc_version="3.12.0"
-protoc_shasum="3af5f90ad973c36bdaf5c4bd0082cfdc8881593ddf530fc6aa1442ee3d7a4e4b"
+protoc_version="3.12.3"
+protoc_shasum="90257aed22e983a6772fb5af259a14d8f78deac0814a7df76a741975ffeea1c0"
 
 protos_version="1_3_1"
 protos_shasum="9584b7ac21de5b31832faf827f898671cdcb034bd557a36ea3e7fc07e6571dcb"

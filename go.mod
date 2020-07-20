@@ -9,7 +9,6 @@ require (
 	github.com/alecthomas/kong v0.2.9
 	github.com/aws/aws-sdk-go v1.32.5 // indirect
 	github.com/golang/protobuf v1.4.2
-	github.com/google/go-cmp v0.5.0 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5
 	github.com/jedib0t/go-pretty/v6 v6.0.4
 	github.com/stretchr/testify v1.6.1
@@ -26,5 +25,5 @@ require (
 	google.golang.org/api v0.28.0
 	google.golang.org/genproto v0.0.0-20200618031413-b414f8b61790
 	google.golang.org/grpc v1.29.1
-	google.golang.org/protobuf v1.24.0
+	google.golang.org/protobuf v1.25.0
 )

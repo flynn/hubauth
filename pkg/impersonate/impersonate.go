@@ -20,7 +20,6 @@ import (
 	"golang.org/x/exp/errors/fmt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"golang.org/x/oauth2/jws"
 	"google.golang.org/api/iamcredentials/v1"
 	"google.golang.org/api/option"
 )
@@ -96,6 +95,22 @@ func TokenSource(ctx context.Context, c *TokenConfig) (oauth2.TokenSource, error
 	}, nil
 }
 
+type claimSet struct {
+	Iss   string `json:"iss"`             // email address of the client_id of the application making the access token request
+	Scope string `json:"scope,omitempty"` // space-delimited list of the permissions the application requests
+	Aud   string `json:"aud"`             // descriptor of the intended target of the assertion (Optional).
+	Exp   int64  `json:"exp"`             // the expiration time of the assertion (seconds since Unix epoch)
+	Iat   int64  `json:"iat"`             // the time the assertion was issued (seconds since Unix epoch)
+	Typ   string `json:"typ,omitempty"`   // token type (Optional).
+
+	// Email for which the application is requesting delegated access (Optional).
+	Sub string `json:"sub,omitempty"`
+
+	// The old name of Sub. Client keeps setting Prn to be
+	// complaint with legacy OAuth 2.0 providers. (Optional)
+	Prn string `json:"prn,omitempty"`
+}
+
 type tokenSource struct {
 	refreshMutex      sync.Mutex    // guards impersonatedToken; held while fetching or updating it.
 	impersonatedToken *oauth2.Token // Token representing the impersonated identity.
@@ -143,7 +158,7 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 		// ref: https://gist.github.com/julianvmodesto/ed73201703dac8a047ec35a24dce4524
 		iat := time.Now()
 		exp := iat.Add(time.Hour)
-		claims := &jws.ClaimSet{
+		claims := claimSet{
 			Iss:   ts.targetPrincipal,
 			Scope: strings.Join(ts.targetScopes, " "),
 			Sub:   ts.subject,

@@ -12,7 +12,16 @@ import (
 
 type Key []byte
 
+var (
+	ErrEmptyKey         = errors.New("hmacpb: empty key")
+	ErrInvalidSignature = errors.New("hmacpb: invalid signature")
+)
+
 func SignMarshal(k Key, msg proto.Message) ([]byte, error) {
+	if len(k) == 0 {
+		return nil, ErrEmptyKey
+	}
+
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		return nil, fmt.Errorf("hmacpb: error marshalling message: %w", err)
@@ -28,8 +37,6 @@ func SignMarshal(k Key, msg proto.Message) ([]byte, error) {
 
 	return res, nil
 }
-
-var ErrInvalidSignature = errors.New("hmacpb: invalid signature")
 
 func VerifyUnmarshal(k Key, b []byte, m proto.Message) error {
 	signed := &pb.SignedData{}

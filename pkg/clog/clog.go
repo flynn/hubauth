@@ -67,14 +67,22 @@ func Context(ctx context.Context) context.Context {
 }
 
 func Set(ctx context.Context, f ...zap.Field) {
-	ctxVal := ctx.Value(ctxKey{}).(*ctxValue)
+	ctxVal, ok := ctx.Value(ctxKey{}).(*ctxValue)
+	if !ok {
+		return
+	}
+
 	ctxVal.Lock()
 	ctxVal.fields = append(ctxVal.fields, f...)
 	ctxVal.Unlock()
 }
 
 func Log(ctx context.Context, msg string) {
-	ctxVal := ctx.Value(ctxKey{}).(*ctxValue)
+	ctxVal, ok := ctx.Value(ctxKey{}).(*ctxValue)
+	if !ok {
+		return
+	}
+
 	ctxVal.Lock()
 	Logger.Info(msg, ctxVal.fields...)
 	ctxVal.fields = ctxVal.fields[:0]
@@ -89,7 +97,11 @@ type ErrInfo struct {
 }
 
 func Error(ctx context.Context, err error, info *ErrInfo) {
-	ctxVal := ctx.Value(ctxKey{}).(*ctxValue)
+	ctxVal, ok := ctx.Value(ctxKey{}).(*ctxValue)
+	if !ok {
+		return
+	}
+
 	ctxVal.Lock()
 	defer ctxVal.Unlock()
 	ErrorWithLogger(Logger, err, info, ctxVal.fields...)

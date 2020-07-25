@@ -418,11 +418,17 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		AccessToken:           accessToken,
 		Nonce:                 code.Nonce,
 		RedirectURI:           req.RedirectURI,
+		Audience:              req.Audience,
 		RefreshTokenExpiresIn: int(client.RefreshTokenExpiry / time.Second),
 	}
-	if res.AccessToken != "" {
-		res.ExpiresIn = int(accessTokenDuration / time.Second)
+	if res.AccessToken == "" {
+		// if no audience was provided, provide a refresh token that can be used to to access /audiences
+		res.TokenType = "RefreshToken"
+		res.AccessToken = res.RefreshToken
+		res.ExpiresIn = res.RefreshTokenExpiresIn
+	} else {
 		res.TokenType = "Bearer"
+		res.ExpiresIn = int(accessTokenDuration / time.Second)
 	}
 	return res, nil
 }
@@ -555,9 +561,15 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		RefreshToken:          refreshToken,
 		AccessToken:           accessToken,
 		RedirectURI:           newToken.RedirectURI,
+		Audience:              req.Audience,
 		RefreshTokenExpiresIn: int(time.Until(newToken.ExpiryTime) / time.Second),
 	}
-	if res.AccessToken != "" {
+	if res.AccessToken == "" {
+		// if no audience was provided, provide a refresh token that can be used to to access /audiences
+		res.TokenType = "RefreshToken"
+		res.AccessToken = res.RefreshToken
+		res.ExpiresIn = res.RefreshTokenExpiresIn
+	} else {
 		res.TokenType = "Bearer"
 		res.ExpiresIn = int(accessTokenDuration / time.Second)
 	}

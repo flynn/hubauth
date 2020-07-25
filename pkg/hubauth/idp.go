@@ -44,6 +44,7 @@ type AccessToken struct {
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	Nonce        string `json:"nonce,omitempty"`
+	Audience     string `json:"audience,omitempty"`
 
 	RefreshTokenExpiresIn int `json:"refresh_token_expires_in"`
 

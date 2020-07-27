@@ -14,6 +14,11 @@ type AuthorizeCodeRequest struct {
 	Params  url.Values
 }
 
+const (
+	ResponseModeQuery    = "query"
+	ResponseModeFragment = "fragment"
+)
+
 type AuthorizeUserRequest struct {
 	ClientID      string
 	RedirectURI   string

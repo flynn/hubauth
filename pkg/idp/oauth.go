@@ -85,10 +85,11 @@ func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 	}
 
 	if req.RedirectURI != oobRedirectURI {
-		ci := hubauth.GetClientInfo(ctx)
-		ci.RedirectURI = req.RedirectURI
-		ci.State = req.ClientState
-		ci.Fragment = req.ResponseMode == "fragment"
+		if ci := hubauth.GetClientInfo(ctx); ci != nil {
+			ci.RedirectURI = req.RedirectURI
+			ci.State = req.ClientState
+			ci.Fragment = req.ResponseMode == hubauth.ResponseModeFragment
+		}
 	}
 
 	if len(req.ClientState) == 0 && req.RedirectURI != oobRedirectURI {
@@ -109,7 +110,7 @@ func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 			Description: "missing code_challenge parameter",
 		}
 	}
-	if req.ResponseMode != "query" && req.ResponseMode != "fragment" {
+	if req.ResponseMode != hubauth.ResponseModeQuery && req.ResponseMode != hubauth.ResponseModeFragment {
 		return nil, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "invalid response_mode parameter",
@@ -129,10 +130,11 @@ const codeExpiry = 30 * time.Second
 
 func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeCodeRequest) (*hubauth.AuthorizeResponse, error) {
 	if req.RedirectURI != oobRedirectURI {
-		ci := hubauth.GetClientInfo(ctx)
-		ci.RedirectURI = req.RedirectURI
-		ci.State = req.ClientState
-		ci.Fragment = req.ResponseMode == "fragment"
+		if ci := hubauth.GetClientInfo(ctx); ci != nil {
+			ci.RedirectURI = req.RedirectURI
+			ci.State = req.ClientState
+			ci.Fragment = req.ResponseMode == hubauth.ResponseModeFragment
+		}
 	}
 
 	token, err := s.rp.Exchange(ctx, &rp.RedirectResult{
@@ -208,7 +210,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 	if req.RedirectURI == oobRedirectURI {
 		return &hubauth.AuthorizeResponse{DisplayCode: codeRes}, nil
 	}
-	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == "fragment", map[string]string{
+	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == hubauth.ResponseModeFragment, map[string]string{
 		"code":  codeRes,
 		"state": req.ClientState,
 	})

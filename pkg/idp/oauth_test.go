@@ -3,6 +3,8 @@ package idp
 import (
 	"context"
 	"crypto/rand"
+	"errors"
+	"net/url"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/kmssign/kmssim"
+	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -43,10 +46,10 @@ func newTestIdPService(t *testing.T) *idpService {
 	kmsKeys := []string{refreshKeyName}
 	kms := kmssim.NewClient(kmsKeys)
 
-	codeKey := make(hmacpb.Key, 0, 32)
-	n, err := rand.Read(codeKey)
-	require.Equal(t, len(codeKey), n)
+	codeKey := make(hmacpb.Key, 32)
+	_, err = rand.Read(codeKey)
 	require.NoError(t, err)
+	require.Equal(t, len(codeKey), 32)
 
 	ctx := context.Background()
 	refreshKey, err := kmssign.NewKey(ctx, kms, refreshKeyName)
@@ -216,4 +219,188 @@ func TestIDPServiceAuthorizeUserRedirectParameters(t *testing.T) {
 			require.EqualError(t, err, testCase.desc)
 		})
 	}
+}
+
+func TestAuthorizeCodeRedirect(t *testing.T) {
+	idpService := newTestIdPService(t)
+
+	redirectURI := "http://redirect/url"
+	clientID, err := idpService.db.CreateClient(context.Background(), &hubauth.Client{
+		ID: "clientID123",
+		RedirectURIs: []string{
+			redirectURI,
+			oobRedirectURI,
+		},
+		RefreshTokenExpiry: time.Second * 60,
+	})
+	require.NoError(t, err)
+
+	userID := "userID"
+	userEmail := "user@email.com"
+	idpService.db.SetCachedGroup(context.Background(), &hubauth.CachedGroup{
+		Domain:  "group1Domain",
+		GroupID: "group1",
+		Email:   "group1@group1Domain",
+	}, []*hubauth.CachedGroupMember{{UserID: userID, Email: userEmail}})
+
+	req := &hubauth.AuthorizeCodeRequest{
+		AuthorizeUserRequest: hubauth.AuthorizeUserRequest{
+			ClientID:      clientID,
+			ClientState:   "clientState",
+			Nonce:         "nonce",
+			CodeChallenge: "challenge",
+		},
+		RPState: "rpState",
+		Params:  url.Values{"exchange": {"params"}},
+	}
+
+	redirectResult := &rp.RedirectResult{
+		State:  req.RPState,
+		Params: req.Params,
+	}
+
+	ctx := hubauth.InitClientInfo(context.Background())
+	idpService.rp.(*mockAuthService).On("Exchange", ctx, redirectResult).Return(&rp.Token{
+		UserID: userID,
+		Email:  userEmail,
+	}, nil)
+
+	t.Run("AuthorizeCodeRedirect returns a valid code in fragment", func(t *testing.T) {
+		req.RedirectURI = redirectURI
+		req.ResponseMode = hubauth.ResponseModeFragment
+
+		resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
+		require.NoError(t, err)
+		require.Empty(t, resp.DisplayCode)
+		require.Empty(t, resp.RPState)
+		require.Contains(t, resp.URL, req.RedirectURI)
+
+		u, err := url.Parse(resp.URL)
+		require.NoError(t, err)
+
+		fragmentValues, err := url.ParseQuery(u.Fragment)
+		require.NoError(t, err)
+		require.Equal(t, req.ClientState, fragmentValues.Get("state"))
+
+		assertValidCode(t, idpService.codeKey, fragmentValues.Get("code"), userID, userEmail)
+	})
+
+	t.Run("AuthorizeCodeRedirect returns a valid code in query string", func(t *testing.T) {
+		req.RedirectURI = redirectURI
+		req.ResponseMode = hubauth.ResponseModeQuery
+
+		resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
+		require.NoError(t, err)
+		require.Empty(t, resp.DisplayCode)
+		require.Empty(t, resp.RPState)
+		require.Contains(t, resp.URL, req.RedirectURI)
+
+		u, err := url.Parse(resp.URL)
+		require.NoError(t, err)
+
+		require.Equal(t, req.ClientState, u.Query().Get("state"))
+		assertValidCode(t, idpService.codeKey, u.Query().Get("code"), userID, userEmail)
+	})
+
+	t.Run("AuthorizeCodeRedirect returns DisplayCode when redirectURI is OOB", func(t *testing.T) {
+		req.RedirectURI = oobRedirectURI
+		resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.DisplayCode)
+		require.Empty(t, resp.RPState)
+		require.Empty(t, resp.URL)
+
+		assertValidCode(t, idpService.codeKey, resp.DisplayCode, userID, userEmail)
+	})
+}
+
+func TestAuthorizeCodeRedirectExchangeErrors(t *testing.T) {
+	testCases := []error{
+		&hubauth.OAuthError{
+			Code:        "access_denied",
+			Description: "access_denied desc",
+		},
+		&hubauth.OAuthError{
+			Code:        "temporarily_unavailable",
+			Description: "temporarily_unavailable desc",
+		},
+		errors.New("test error"),
+	}
+
+	req := &hubauth.AuthorizeCodeRequest{
+		RPState: "rpState",
+		Params:  url.Values{"exchange": {"params"}},
+	}
+
+	for _, e := range testCases {
+		t.Run(e.Error(), func(t *testing.T) {
+			ctx := context.Background()
+			idpService := newTestIdPService(t)
+			idpService.rp.(*mockAuthService).On("Exchange", ctx, &rp.RedirectResult{
+				State:  req.RPState,
+				Params: req.Params,
+			}).Return(&rp.Token{}, e)
+
+			resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
+			if _, ok := err.(*hubauth.OAuthError); !ok {
+				err = errors.Unwrap(err)
+			}
+			require.EqualError(t, err, e.Error())
+			require.Nil(t, resp)
+		})
+	}
+}
+
+func TestAuthorizeCodeRedirectUserWithoutGroup(t *testing.T) {
+	idpService := newTestIdPService(t)
+
+	redirectURI := "http://redirect/uri"
+	clientID, err := idpService.db.CreateClient(context.Background(), &hubauth.Client{
+		ID: "clientID123",
+		RedirectURIs: []string{
+			redirectURI,
+		},
+		RefreshTokenExpiry: time.Second * 60,
+	})
+	require.NoError(t, err)
+
+	req := &hubauth.AuthorizeCodeRequest{
+		AuthorizeUserRequest: hubauth.AuthorizeUserRequest{
+			ClientID:      clientID,
+			RedirectURI:   redirectURI,
+			ClientState:   "clientState",
+			Nonce:         "nonce",
+			CodeChallenge: "challenge",
+			ResponseMode:  hubauth.ResponseModeFragment,
+		},
+		RPState: "rp_state",
+		Params:  url.Values{"req": {"params"}},
+	}
+
+	ctx := hubauth.InitClientInfo(context.Background())
+	redirectResult := &rp.RedirectResult{
+		State:  req.RPState,
+		Params: req.Params,
+	}
+
+	idpService.rp.(*mockAuthService).On("Exchange", ctx, redirectResult).Return(&rp.Token{
+		UserID: "userIDNoGroup",
+		Email:  "userEmailNoGroup",
+	}, nil)
+
+	_, err = idpService.AuthorizeCodeRedirect(ctx, req)
+	require.EqualError(t, err, hubauth.OAuthError{
+		Code:        "access_denied",
+		Description: "unknown user",
+	}.Error())
+}
+
+func assertValidCode(t *testing.T, codeKey []byte, b64code, userID, userEmail string) {
+	code, err := base64Decode(b64code)
+	require.NoError(t, err)
+
+	codeInfo := &pb.Code{}
+	require.NoError(t, hmacpb.VerifyUnmarshal(codeKey, code, codeInfo))
+	require.Equal(t, userID, codeInfo.UserId)
+	require.Equal(t, userEmail, codeInfo.UserEmail)
 }

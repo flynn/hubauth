@@ -242,10 +242,6 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 	g, ctx := errgroup.WithContext(parentCtx)
 
 	now := time.Now()
-	rtID, err := s.db.AllocateRefreshTokenID(ctx, req.ClientID)
-	if err != nil {
-		return nil, fmt.Errorf("idp: error allocating refresh token ID: %w", err)
-	}
 
 	var code *hubauth.Code
 	g.Go(func() error {
@@ -353,6 +349,24 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			return fmt.Errorf("idp: error getting client %s: %w", req.ClientID, err)
 		}
 
+		return nil
+	})
+
+	// We need to wait here to ensure every checks passed before actually creating tokens
+	// otherwise we have some races, like trying to request a kms key for an audience that doesn't exists.
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Now we start a fresh group to handle tokens creation and signature
+	g, ctx = errgroup.WithContext(parentCtx)
+
+	rtID, err := s.db.AllocateRefreshTokenID(ctx, req.ClientID)
+	if err != nil {
+		return nil, fmt.Errorf("idp: error allocating refresh token ID: %w", err)
+	}
+
+	g.Go(func() error {
 		rt := &hubauth.RefreshToken{
 			ID:          rtID,
 			ClientID:    req.ClientID,

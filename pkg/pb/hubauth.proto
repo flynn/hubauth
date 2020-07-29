@@ -15,6 +15,7 @@ message RefreshToken {
     string user_id = 3;
     string user_email = 4;
     bytes client_id = 5;
+    google.protobuf.Timestamp expire_time = 6;
 }
 
 message Code {

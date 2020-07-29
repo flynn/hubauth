@@ -3,7 +3,6 @@ package idp
 import (
 	"context"
 	"crypto"
-	"crypto/sha256"
 	"encoding/base64"
 	"net/url"
 	"strings"
@@ -17,7 +16,6 @@ import (
 	"github.com/flynn/hubauth/pkg/rp"
 	"github.com/flynn/hubauth/pkg/signpb"
 	"github.com/golang/protobuf/ptypes"
-	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"golang.org/x/exp/errors"
 	"golang.org/x/exp/errors/fmt"
@@ -27,6 +25,8 @@ import (
 type AudienceKeyNamer func(audience string) string
 
 const oobRedirectURI = "urn:ietf:wg:oauth:2.0:oob"
+const codeExpiry = 30 * time.Second
+const accessTokenDuration = 5 * time.Minute
 
 func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) string {
 	return func(aud string) string {
@@ -38,15 +38,30 @@ func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) strin
 	}
 }
 
-func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, codeKey hmacpb.Key, refreshKey signpb.Key, audienceKey AudienceKeyNamer) hubauth.IdPService {
-	return &idpService{
-		db:          db,
-		rp:          rp,
-		kms:         kms,
-		codeKey:     codeKey,
-		refreshKey:  refreshKey,
-		audienceKey: audienceKey,
-	}
+type clock interface {
+	Now() time.Time
+}
+
+type clockImpl struct{}
+
+func (clockImpl) Now() time.Time {
+	return time.Now()
+}
+
+type idpSteps interface {
+	VerifyAudience(ctx context.Context, audienceURL, clientID, userID string) error
+	VerifyUserGroups(ctx context.Context, userID string) error
+
+	CreateCode(ctx context.Context, code *hubauth.Code) (string, string, error)
+	VerifyCode(ctx context.Context, c *verifyCodeData) (*hubauth.Code, error)
+	SignCode(ctx context.Context, signKey hmacpb.Key, code *signCodeData) (string, error)
+
+	AllocateRefreshToken(ctx context.Context, clientID string) (string, error)
+	SaveRefreshToken(ctx context.Context, codeID, redirectURI string, t *refreshTokenData) (*hubauth.Client, error)
+	SignRefreshToken(ctx context.Context, signKey signpb.PrivateKey, t *signedRefreshTokenData) (string, error)
+	RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error)
+
+	SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData) (string, error)
 }
 
 type idpService struct {
@@ -57,6 +72,26 @@ type idpService struct {
 	codeKey     hmacpb.Key
 	refreshKey  signpb.Key
 	audienceKey AudienceKeyNamer
+
+	steps idpSteps
+	clock clock
+}
+
+var _ hubauth.IdPService = (*idpService)(nil)
+
+func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, codeKey hmacpb.Key, refreshKey signpb.Key, audienceKey AudienceKeyNamer) hubauth.IdPService {
+	return &idpService{
+		db:          db,
+		rp:          rp,
+		kms:         kms,
+		codeKey:     codeKey,
+		refreshKey:  refreshKey,
+		audienceKey: audienceKey,
+		steps: &steps{
+			db: db,
+		},
+		clock: clockImpl{},
+	}
 }
 
 func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.AuthorizeUserRequest) (*hubauth.AuthorizeResponse, error) {
@@ -126,8 +161,6 @@ func (s *idpService) AuthorizeUserRedirect(ctx context.Context, req *hubauth.Aut
 	}, nil
 }
 
-const codeExpiry = 30 * time.Second
-
 func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.AuthorizeCodeRequest) (*hubauth.AuthorizeResponse, error) {
 	if req.RedirectURI != oobRedirectURI {
 		if ci := hubauth.GetClientInfo(ctx); ci != nil {
@@ -157,19 +190,10 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 	g.Go(func() error {
 		// check that we know of the user at all, as a DoS prevention measure (the
 		// actual user checks happen in the token endpoint)
-		groups, err := s.db.GetCachedMemberGroups(ctx, token.UserID)
-		if err != nil {
-			return fmt.Errorf("idp: error getting cached groups for user: %w", err)
-		}
-		if len(groups) == 0 {
-			return &hubauth.OAuthError{
-				Code:        "access_denied",
-				Description: "unknown user",
-			}
-		}
-		return nil
+		return s.steps.VerifyUserGroups(ctx, token.UserID)
 	})
 
+	now := s.clock.Now()
 	code := &hubauth.Code{
 		ClientID:      req.ClientID,
 		UserID:        token.UserID,
@@ -177,12 +201,11 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		RedirectURI:   req.RedirectURI,
 		Nonce:         req.Nonce,
 		PKCEChallenge: req.CodeChallenge,
-		ExpiryTime:    time.Now().Add(codeExpiry),
+		ExpiryTime:    now.Add(codeExpiry),
 	}
 	var codeID, codeSecret string
-	g.Go(func() error {
-		var err error
-		codeID, codeSecret, err = s.db.CreateCode(ctx, code)
+	g.Go(func() (err error) {
+		codeID, codeSecret, err = s.steps.CreateCode(ctx, code)
 		if err != nil {
 			return fmt.Errorf("idp: error creating code: %w", err)
 		}
@@ -193,11 +216,12 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		return nil, err
 	}
 
-	codeRes, err := s.signCode(&codeData{
-		Key:       codeID,
-		Secret:    codeSecret,
-		UserID:    token.UserID,
-		UserEmail: token.Email,
+	codeRes, err := s.steps.SignCode(ctx, s.codeKey, &signCodeData{
+		Key:        codeID,
+		Secret:     codeSecret,
+		UserID:     token.UserID,
+		UserEmail:  token.Email,
+		ExpiryTime: now.Add(codeExpiry),
 	})
 	if err != nil {
 		return nil, err
@@ -236,179 +260,75 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			Description: "invalid code",
 		}
 	}
+
+	now := s.clock.Now()
+	if now.After(codeInfo.ExpireTime.AsTime()) {
+		return nil, &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "expired code",
+		}
+	}
+
 	codeID := base64Encode(codeInfo.Key)
 	codeSecret := base64Encode(codeInfo.Secret)
 
 	g, ctx := errgroup.WithContext(parentCtx)
 
-	now := time.Now()
-	rtID, err := s.db.AllocateRefreshTokenID(ctx, req.ClientID)
+	rtID, err := s.steps.AllocateRefreshToken(ctx, req.ClientID)
 	if err != nil {
 		return nil, fmt.Errorf("idp: error allocating refresh token ID: %w", err)
 	}
 
 	var code *hubauth.Code
-	g.Go(func() error {
-		var err error
-		code, err = s.db.VerifyAndDeleteCode(ctx, codeID, codeSecret)
-		if err != nil {
-			if errors.Is(err, hubauth.ErrIncorrectCodeSecret) || errors.Is(err, hubauth.ErrNotFound) {
-				deleted, _ := s.db.DeleteRefreshTokensWithCode(ctx, codeID)
-				if len(deleted) > 0 {
-					clog.Set(ctx, zap.Strings("deleted_refresh_tokens", deleted))
-				}
-				return &hubauth.OAuthError{
-					Code:        "invalid_grant",
-					Description: "code is malformed or has already been exchanged",
-				}
-			}
-			return fmt.Errorf("idp: error verifying and deleting code %s: %w", codeID, err)
-		}
-		clog.Set(ctx,
-			zap.String("code_user_id", code.UserID),
-			zap.String("code_user_email", code.UserEmail),
-		)
-		if req.ClientID != code.ClientID {
-			clog.Set(ctx, zap.String("code_client_id", code.ClientID))
-			return &hubauth.OAuthError{
-				Code:        "invalid_grant",
-				Description: "client_id mismatch",
-			}
-		}
-
-		if req.RedirectURI != code.RedirectURI {
-			clog.Set(ctx, zap.String("code_redirect_uri", code.RedirectURI))
-			return &hubauth.OAuthError{
-				Code:        "invalid_grant",
-				Description: "redirect_uri mismatch",
-			}
-		}
-
-		chall := sha256.Sum256([]byte(req.CodeVerifier))
-		challenge := base64Encode(chall[:])
-		if code.PKCEChallenge != challenge {
-			clog.Set(ctx,
-				zap.String("code_challenge", code.PKCEChallenge),
-				zap.String("expected_challenge", challenge),
-			)
-			return &hubauth.OAuthError{
-				Code:        "invalid_request",
-				Description: "code_verifier mismatch",
-			}
-		}
-
-		return nil
-	})
-
-	g.Go(func() error {
-		if req.Audience == "" {
-			return nil
-		}
-		audience, err := s.db.GetAudience(ctx, req.Audience)
-		if err != nil {
-			if errors.Is(err, hubauth.ErrNotFound) {
-				return &hubauth.OAuthError{
-					Code:        "invalid_request",
-					Description: "unknown audience",
-				}
-			}
-			return fmt.Errorf("idp: error getting audience %s: %w", req.Audience, err)
-		}
-		foundClient := false
-		for _, c := range audience.ClientIDs {
-			if req.ClientID == c {
-				foundClient = true
-				break
-			}
-		}
-		if !foundClient {
-			clog.Set(ctx, zap.Strings("audience_client_ids", audience.ClientIDs))
-			return &hubauth.OAuthError{
-				Code:        "invalid_client",
-				Description: "unknown client for audience",
-			}
-		}
-
-		err = s.checkUser(ctx, audience, codeInfo.UserId)
-		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
-			return &hubauth.OAuthError{
-				Code:        "invalid_grant",
-				Description: "user is not authorized for access",
-			}
-		}
+	g.Go(func() (err error) {
+		code, err = s.steps.VerifyCode(ctx, &verifyCodeData{
+			ClientID:     req.ClientID,
+			RedirectURI:  req.RedirectURI,
+			CodeVerifier: req.CodeVerifier,
+			CodeID:       codeID,
+			CodeSecret:   codeSecret,
+		})
 		return err
 	})
 
-	var client *hubauth.Client
 	g.Go(func() error {
-		var err error
-		client, err = s.db.GetClient(ctx, req.ClientID)
-		if err != nil {
-			if errors.Is(err, hubauth.ErrNotFound) {
-				return &hubauth.OAuthError{
-					Code:        "invalid_client",
-					Description: "unknown client",
-				}
-			}
-			return fmt.Errorf("idp: error getting client %s: %w", req.ClientID, err)
-		}
-
-		rt := &hubauth.RefreshToken{
-			ID:          rtID,
-			ClientID:    req.ClientID,
-			UserID:      codeInfo.UserId,
-			UserEmail:   codeInfo.UserEmail,
-			RedirectURI: req.RedirectURI,
-			CodeID:      codeID,
-			IssueTime:   now,
-			ExpiryTime:  now.Add(client.RefreshTokenExpiry),
-		}
-		_, err = s.db.CreateRefreshToken(ctx, rt)
-		if err != nil {
-			return fmt.Errorf("idp: error creating refresh token for code %s: %w", codeID, err)
-		}
-		clog.Set(ctx,
-			zap.Time("issued_refresh_token_expiry", rt.ExpiryTime),
-			zap.String("issued_refresh_token_id", rt.ID),
-			zap.Int("issued_refresh_token_version", 0),
-		)
-		return nil
+		return s.steps.VerifyAudience(ctx, req.Audience, req.ClientID, codeInfo.UserId)
 	})
 
+	var client *hubauth.Client
 	var refreshToken string
-	g.Go(func() error {
-		var err error
-		refreshToken, err = s.signRefreshToken(ctx, &refreshTokenData{
+	g.Go(func() (err error) {
+		rtData := &refreshTokenData{
 			Key:       rtID,
 			IssueTime: now,
 			UserID:    codeInfo.UserId,
 			UserEmail: codeInfo.UserEmail,
 			ClientID:  req.ClientID,
+		}
+		client, err = s.steps.SaveRefreshToken(ctx, codeID, req.RedirectURI, rtData)
+		if err != nil {
+			return err
+		}
+
+		refreshToken, err = s.steps.SignRefreshToken(ctx, s.refreshKey, &signedRefreshTokenData{
+			refreshTokenData: rtData,
+			ExpiryTime:       now.Add(client.RefreshTokenExpiry),
 		})
 		return err
 	})
 
 	var accessToken string
-	g.Go(func() error {
+	g.Go(func() (err error) {
 		if req.Audience == "" {
 			return nil
 		}
-		var err error
-		var accessTokenID string
-		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
-			keyName:   s.audienceKey(req.Audience),
+		signKey := kmssign.NewPrivateKey(s.kms, s.audienceKey(req.Audience), crypto.SHA256)
+		accessToken, err = s.steps.SignAccessToken(ctx, signKey, &accessTokenData{
 			clientID:  req.ClientID,
 			userID:    codeInfo.UserId,
 			userEmail: codeInfo.UserEmail,
 		})
-		if err != nil {
-			return err
-		}
-		clog.Set(ctx,
-			zap.String("issued_access_token_id", accessTokenID),
-			zap.Duration("issued_access_token_expires_in", accessTokenDuration),
-		)
-		return nil
+		return err
 	})
 
 	if err := g.Wait(); err != nil {
@@ -440,118 +360,47 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
 
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		if req.Audience == "" {
-			return nil
-		}
-		audience, err := s.db.GetAudience(ctx, req.Audience)
-		if err != nil {
-			if errors.Is(err, hubauth.ErrNotFound) {
-				return &hubauth.OAuthError{
-					Code:        "invalid_request",
-					Description: "unknown audience",
-				}
-			}
-			return fmt.Errorf("idp: error getting audience %s: %w", req.Audience, err)
-		}
-		foundClient := false
-		for _, c := range audience.ClientIDs {
-			if req.ClientID == c {
-				foundClient = true
-				break
-			}
-		}
-		if !foundClient {
-			clog.Set(ctx, zap.Strings("audience_client_ids", audience.ClientIDs))
-			return &hubauth.OAuthError{
-				Code:        "invalid_client",
-				Description: "unknown client for audience",
-			}
-		}
+		return s.steps.VerifyAudience(ctx, req.Audience, req.ClientID, oldToken.UserID)
+	})
 
-		err = s.checkUser(ctx, audience, oldToken.UserID)
-		if errors.Is(err, hubauth.ErrUnauthorizedUser) {
-			return &hubauth.OAuthError{
-				Code:        "invalid_grant",
-				Description: "user is not authorized for access",
-			}
-		}
+	now := s.clock.Now()
+
+	var newToken *hubauth.RefreshToken
+	g.Go(func() (err error) {
+		newToken, err = s.steps.RenewRefreshToken(ctx, req.ClientID, oldToken.ID, oldToken.IssueTime, now)
 		return err
 	})
 
-	var newToken *hubauth.RefreshToken
-	g.Go(func() error {
-		var err error
-		newToken, err = s.db.RenewRefreshToken(ctx, req.ClientID, oldToken.ID, oldToken.IssueTime, now)
-		if err != nil {
-			switch {
-			case errors.Is(err, hubauth.ErrNotFound):
-				return &hubauth.OAuthError{
-					Code:        "invalid_grant",
-					Description: "refresh_token not found",
-				}
-			case errors.Is(err, hubauth.ErrRefreshTokenVersionMismatch):
-				return &hubauth.OAuthError{
-					Code:        "invalid_grant",
-					Description: "unexpected refresh_token issue time",
-				}
-			case errors.Is(err, hubauth.ErrClientIDMismatch):
-				return &hubauth.OAuthError{
-					Code:        "invalid_grant",
-					Description: "client_id mismatch",
-				}
-			case errors.Is(err, hubauth.ErrExpired):
-				return &hubauth.OAuthError{
-					Code:        "invalid_grant",
-					Description: "refresh_token expired",
-				}
-			}
-			return fmt.Errorf("idp: error renewing refresh token: %w", err)
-		}
-		clog.Set(ctx,
-			zap.String("issued_refresh_token_id", newToken.ID),
-			zap.Time("issued_refresh_token_issue_time", newToken.IssueTime),
-			zap.Time("issued_refresh_token_expiry", newToken.ExpiryTime),
-		)
-		return nil
-	})
-
 	var refreshToken string
-	g.Go(func() error {
-		var err error
-		refreshToken, err = s.signRefreshToken(ctx, &refreshTokenData{
-			Key:       oldToken.ID,
-			IssueTime: now,
-			UserID:    oldToken.UserID,
-			UserEmail: oldToken.UserEmail,
-			ClientID:  req.ClientID,
+	g.Go(func() (err error) {
+		refreshToken, err = s.steps.SignRefreshToken(ctx, s.refreshKey, &signedRefreshTokenData{
+			refreshTokenData: &refreshTokenData{
+				Key:       oldToken.ID,
+				IssueTime: now,
+				UserID:    oldToken.UserID,
+				UserEmail: oldToken.UserEmail,
+				ClientID:  req.ClientID,
+			},
+			ExpiryTime: oldToken.ExpiryTime,
 		})
-		if err != nil {
-			return err
-		}
-		return nil
+		return err
 	})
 
-	var accessToken, accessTokenID string
-	g.Go(func() error {
+	var accessToken string
+	g.Go(func() (err error) {
 		if req.Audience == "" {
 			return nil
 		}
-		var err error
-		accessToken, accessTokenID, err = s.signAccessToken(ctx, &accessTokenData{
-			keyName:   s.audienceKey(req.Audience),
+		signKey := kmssign.NewPrivateKey(s.kms, s.audienceKey(req.Audience), crypto.SHA256)
+		accessToken, err = s.steps.SignAccessToken(ctx, signKey, &accessTokenData{
 			clientID:  req.ClientID,
 			userID:    oldToken.UserID,
 			userEmail: oldToken.UserEmail,
 		})
-		clog.Set(ctx,
-			zap.String("issued_access_token_id", accessTokenID),
-			zap.Duration("issued_access_token_expires_in", accessTokenDuration),
-		)
 		return err
 	})
 
@@ -567,7 +416,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		RefreshTokenExpiresIn: int(time.Until(newToken.ExpiryTime) / time.Second),
 	}
 	if res.AccessToken == "" {
-		// if no audience was provided, provide a refresh token that can be used to to access /audiences
+		// if no audience was provided, provide a refresh token that can be used to access /audiences
 		res.TokenType = "RefreshToken"
 		res.AccessToken = res.RefreshToken
 		res.ExpiresIn = res.RefreshTokenExpiresIn
@@ -673,6 +522,14 @@ func (s *idpService) decodeRefreshToken(ctx context.Context, t string) (*hubauth
 			Description: "invalid refresh_token",
 		}
 	}
+
+	if s.clock.Now().After(token.ExpireTime.AsTime()) {
+		return nil, &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "expired refresh token",
+		}
+	}
+
 	issueTime, err := ptypes.Timestamp(token.IssueTime)
 	if err != nil {
 		clog.Set(ctx, zap.NamedError("issue_time_error", err))
@@ -682,11 +539,12 @@ func (s *idpService) decodeRefreshToken(ctx context.Context, t string) (*hubauth
 		}
 	}
 	res := &hubauth.RefreshToken{
-		ID:        base64Encode(token.Key),
-		ClientID:  base64Encode(token.ClientId),
-		UserID:    token.UserId,
-		UserEmail: token.UserEmail,
-		IssueTime: issueTime,
+		ID:         base64Encode(token.Key),
+		ClientID:   base64Encode(token.ClientId),
+		UserID:     token.UserId,
+		UserEmail:  token.UserEmail,
+		IssueTime:  issueTime,
+		ExpiryTime: token.ExpireTime.AsTime(),
 	}
 	clog.Set(ctx,
 		zap.String("refresh_token_id", res.ID),
@@ -696,145 +554,6 @@ func (s *idpService) decodeRefreshToken(ctx context.Context, t string) (*hubauth
 		zap.String("refresh_token_client_id", res.ClientID),
 	)
 	return res, nil
-}
-
-func (s *idpService) checkUser(ctx context.Context, cluster *hubauth.Audience, userID string) error {
-	groups, err := s.db.GetCachedMemberGroups(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("idp: error getting cached groups for user: %w", err)
-	}
-
-	// TODO: log allowed groups and cached groups
-	allowed := false
-outer:
-	for _, p := range cluster.Policies {
-		for _, allowedGroup := range p.Groups {
-			for _, g := range groups {
-				if g == allowedGroup {
-					allowed = true
-					clog.Set(ctx, zap.String("authorized_group", g))
-					break outer
-				}
-			}
-		}
-	}
-	if !allowed {
-		return hubauth.ErrUnauthorizedUser
-	}
-	return nil
-}
-
-type codeData struct {
-	Key       string
-	Secret    string
-	UserID    string
-	UserEmail string
-}
-
-func (s *idpService) signCode(code *codeData) (string, error) {
-	keyBytes, err := base64Decode(code.Key)
-	if err != nil {
-		return "", fmt.Errorf("idp: error decoding key secret: %w", err)
-	}
-
-	secretBytes, err := base64Decode(code.Secret)
-	if err != nil {
-		return "", fmt.Errorf("idp: error decoding code secret: %w", err)
-	}
-
-	res, err := hmacpb.SignMarshal(s.codeKey, &pb.Code{
-		Key:       keyBytes,
-		Secret:    secretBytes,
-		UserId:    code.UserID,
-		UserEmail: code.UserEmail,
-	})
-	if err != nil {
-		return "", fmt.Errorf("idp: error encoding signing code: %w", err)
-	}
-	return base64Encode(res), nil
-}
-
-type refreshTokenData struct {
-	Key       string
-	IssueTime time.Time
-	UserID    string
-	UserEmail string
-	ClientID  string
-}
-
-func (s *idpService) signRefreshToken(ctx context.Context, t *refreshTokenData) (string, error) {
-	ctx, span := trace.StartSpan(ctx, "idp.SignRefreshToken")
-	span.AddAttributes(
-		trace.StringAttribute("refresh_token_id", t.Key),
-		trace.StringAttribute("user_id", t.UserID),
-		trace.StringAttribute("refresh_token_issue_time", t.IssueTime.String()),
-	)
-	defer span.End()
-
-	keyBytes, err := base64Decode(t.Key)
-	if err != nil {
-		return "", fmt.Errorf("idp: error decoding refresh token key %q: %w", t.Key, err)
-	}
-
-	clientIDBytes, err := base64Decode(t.ClientID)
-	if err != nil {
-		return "", fmt.Errorf("idp: error decoding client id %q: %w", t.ClientID, err)
-	}
-
-	iss, _ := ptypes.TimestampProto(t.IssueTime)
-	msg := &pb.RefreshToken{
-		Key:       keyBytes,
-		IssueTime: iss,
-		UserId:    t.UserID,
-		UserEmail: t.UserEmail,
-		ClientId:  clientIDBytes,
-	}
-	tokenBytes, err := signpb.SignMarshal(ctx, s.refreshKey, msg)
-	if err != nil {
-		return "", fmt.Errorf("idp: error signing refresh token: %w", err)
-	}
-	return base64Encode(tokenBytes), nil
-}
-
-const accessTokenDuration = 5 * time.Minute
-
-type accessTokenData struct {
-	keyName   string
-	clientID  string
-	userID    string
-	userEmail string
-}
-
-func (s *idpService) signAccessToken(ctx context.Context, t *accessTokenData) (token string, id string, err error) {
-	ctx, span := trace.StartSpan(ctx, "idp.SignAccessToken")
-	span.AddAttributes(
-		trace.StringAttribute("client_id", t.clientID),
-		trace.StringAttribute("user_id", t.userID),
-		trace.StringAttribute("user_email", t.userEmail),
-	)
-	defer span.End()
-
-	now := time.Now()
-	exp, _ := ptypes.TimestampProto(now.Add(accessTokenDuration))
-	iss, _ := ptypes.TimestampProto(now)
-	msg := &pb.AccessToken{
-		ClientId:   t.clientID,
-		UserId:     t.userID,
-		UserEmail:  t.userEmail,
-		IssueTime:  iss,
-		ExpireTime: exp,
-	}
-	k := kmssign.NewPrivateKey(s.kms, t.keyName, crypto.SHA256)
-	tokenBytes, err := signpb.SignMarshal(ctx, k, msg)
-	if err != nil {
-		return "", "", fmt.Errorf("idp: error signing access token: %w", err)
-	}
-	idBytes := sha256.Sum256(tokenBytes)
-
-	token = base64.URLEncoding.EncodeToString(tokenBytes)
-	id = base64Encode(idBytes[:])
-	span.AddAttributes(trace.StringAttribute("access_token_id", id))
-	return token, id, nil
 }
 
 func base64Decode(s string) ([]byte, error) {

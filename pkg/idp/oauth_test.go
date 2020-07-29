@@ -90,6 +90,10 @@ func (m *mockSteps) RenewRefreshToken(ctx context.Context, clientID, oldTokenID 
 	args := m.Called(ctx, clientID, oldTokenID, oldTokenIssueTime, now)
 	return args.Get(0).(*hubauth.RefreshToken), args.Error(1)
 }
+func (m *mockSteps) VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken, now time.Time) error {
+	args := m.Called(ctx, rt, now)
+	return args.Error(0)
+}
 
 type mockClock struct {
 	mock.Mock
@@ -748,10 +752,27 @@ func TestRefreshToken(t *testing.T) {
 	}
 }
 
+type invalidRefreshTokenTestCase struct {
+	RefreshToken string
+	Err          *hubauth.OAuthError
+}
+
 func TestRefreshTokenErrors(t *testing.T) {
 	wrongKeyName := "wrongKey"
 	idpService := newTestIdPService(t, wrongKeyName)
+	testCases := prepareInvalidRefreshTokenTestCases(t, idpService, wrongKeyName)
+	for _, testCase := range testCases {
+		t.Run(testCase.Err.Description, func(t *testing.T) {
+			req := &hubauth.RefreshTokenRequest{
+				RefreshToken: testCase.RefreshToken,
+			}
+			_, err := idpService.RefreshToken(context.Background(), req)
+			require.EqualError(t, err, testCase.Err.Error())
+		})
+	}
+}
 
+func prepareInvalidRefreshTokenTestCases(t *testing.T, idpService *idpService, wrongKeyName string) []*invalidRefreshTokenTestCase {
 	wrongKey, err := kmssign.NewKey(context.Background(), idpService.kms, wrongKeyName)
 	require.NoError(t, err)
 
@@ -767,10 +788,7 @@ func TestRefreshTokenErrors(t *testing.T) {
 
 	idpService.clock.(*mockClock).On("Now").Return(now)
 
-	testCases := []struct {
-		RefreshToken string
-		Err          *hubauth.OAuthError
-	}{
+	testCases := []*invalidRefreshTokenTestCase{
 		{
 			RefreshToken: "not b64 valid",
 			Err: &hubauth.OAuthError{
@@ -801,12 +819,194 @@ func TestRefreshTokenErrors(t *testing.T) {
 		},
 	}
 
+	return testCases
+}
+
+type audienceTestCase struct {
+	ClientID  string
+	UserID    string
+	Audiences []*hubauth.Audience
+}
+
+func TestListAudience(t *testing.T) {
+	testCases := prepareClientAudiencesDB(t)
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%s - %s", testCase.UserID, testCase.ClientID), func(t *testing.T) {
+			idpService := newTestIdPService(t)
+			now := time.Now()
+
+			rtID := []byte(testCase.UserID)
+			b64RtID := base64Encode(rtID)
+			issueTime, _ := ptypes.TimestampProto(now)
+			userID := testCase.UserID
+			userEmail := testCase.UserID
+			clientID, _ := base64Decode(testCase.ClientID)
+			b64ClientID := testCase.ClientID
+
+			expireTime := now.Add(5 * time.Second)
+			expireTimeProto, _ := ptypes.TimestampProto(expireTime)
+			rt, err := signpb.SignMarshal(context.Background(), idpService.refreshKey, &pb.RefreshToken{
+				Key:        rtID,
+				IssueTime:  issueTime,
+				UserId:     userID,
+				UserEmail:  userEmail,
+				ClientId:   clientID,
+				ExpireTime: expireTimeProto,
+			})
+			require.NoError(t, err)
+
+			idpService.clock.(*mockClock).On("Now").Return(now)
+			idpService.steps.(*mockSteps).On("VerifyRefreshToken", mock.Anything, &hubauth.RefreshToken{
+				ID:         b64RtID,
+				ClientID:   b64ClientID,
+				UserID:     userID,
+				UserEmail:  userEmail,
+				IssueTime:  issueTime.AsTime(),
+				ExpiryTime: expireTimeProto.AsTime(),
+			}, now).Return(nil)
+
+			ctx := hubauth.InitClientInfo(context.Background())
+			req := &hubauth.ListAudiencesRequest{
+				RefreshToken: base64Encode(rt),
+			}
+
+			want := &hubauth.ListAudiencesResponse{Audiences: testCase.Audiences}
+			got, err := idpService.ListAudiences(ctx, req)
+			require.NoError(t, err)
+
+			// Unset time on response audiences to ease comparison
+			for _, a := range got.Audiences {
+				a.CreateTime = time.Time{}
+				a.UpdateTime = time.Time{}
+			}
+			require.EqualValues(t, want, got)
+		})
+	}
+}
+
+// Create the following entities in db:
+// user1
+// user2
+// user3
+//
+// client1
+// client2
+//
+// group1
+//   - user2
+//   - user3
+//
+// group2
+//   - user3
+//
+// audience1
+//   - client1
+//   - group1
+//   - group2
+//
+// audience2
+//  - client1
+//  - client2
+//  - group2
+//
+// So we expect the following access:
+//
+// user1 / client1 : no audience
+// user1 / client2 : no audience
+// user2 / client1 : audience1
+// user2 / client2 : no audience
+// user3 / client1 : audience1 audience2
+// user3 / client2 : audience2
+func prepareClientAudiencesDB(t *testing.T) []*audienceTestCase {
+	dsc, err := gdatastore.NewClient(context.Background(), "test")
+	require.NoError(t, err)
+	db := datastore.New(dsc)
+
+	user1 := "user1"
+	user2 := "user2"
+	user3 := "user3"
+
+	client1 := &hubauth.Client{ID: "client1"}
+	client2 := &hubauth.Client{ID: "client2"}
+
+	client1ID, err := db.CreateClient(context.Background(), client1)
+	require.NoError(t, err)
+	client2ID, err := db.CreateClient(context.Background(), client2)
+	require.NoError(t, err)
+
+	group1 := &hubauth.CachedGroup{GroupID: "group1", Domain: "group1"}
+	group1Members := []*hubauth.CachedGroupMember{
+		{UserID: user2},
+		{UserID: user3},
+	}
+	group2 := &hubauth.CachedGroup{GroupID: "group2", Domain: "group2"}
+	group2Members := []*hubauth.CachedGroupMember{
+		{UserID: user3},
+	}
+	_, err = db.SetCachedGroup(context.Background(), group1, group1Members)
+	require.NoError(t, err)
+	_, err = db.SetCachedGroup(context.Background(), group2, group2Members)
+	require.NoError(t, err)
+
+	audience1 := &hubauth.Audience{
+		ClientIDs: []string{client1ID},
+		Policies: []*hubauth.GoogleUserPolicy{
+			{Groups: []string{group1.GroupID, group2.GroupID}},
+		},
+	}
+	audience2 := &hubauth.Audience{
+		ClientIDs: []string{client1ID, client2ID},
+		Policies: []*hubauth.GoogleUserPolicy{
+			{Groups: []string{group2.GroupID}},
+		},
+	}
+	require.NoError(t, db.CreateAudience(context.Background(), audience1))
+	require.NoError(t, db.CreateAudience(context.Background(), audience2))
+
+	return []*audienceTestCase{
+		{
+			UserID:    user1,
+			ClientID:  client1ID,
+			Audiences: []*hubauth.Audience{},
+		},
+		{
+			UserID:    user1,
+			ClientID:  client2ID,
+			Audiences: []*hubauth.Audience{},
+		},
+		{
+			UserID:    user2,
+			ClientID:  client1ID,
+			Audiences: []*hubauth.Audience{audience1},
+		},
+		{
+			UserID:    user2,
+			ClientID:  client2ID,
+			Audiences: []*hubauth.Audience{},
+		},
+		{
+			UserID:    user3,
+			ClientID:  client1ID,
+			Audiences: []*hubauth.Audience{audience1, audience2},
+		},
+		{
+			UserID:    user3,
+			ClientID:  client2ID,
+			Audiences: []*hubauth.Audience{audience2},
+		},
+	}
+}
+
+func TestListAudienceErrors(t *testing.T) {
+	wrongKeyName := "wrongKey"
+	idpService := newTestIdPService(t, wrongKeyName)
+	testCases := prepareInvalidRefreshTokenTestCases(t, idpService, wrongKeyName)
 	for _, testCase := range testCases {
 		t.Run(testCase.Err.Description, func(t *testing.T) {
-			req := &hubauth.RefreshTokenRequest{
+			req := &hubauth.ListAudiencesRequest{
 				RefreshToken: testCase.RefreshToken,
 			}
-			_, err := idpService.RefreshToken(context.Background(), req)
+			_, err := idpService.ListAudiences(context.Background(), req)
 			require.EqualError(t, err, testCase.Err.Error())
 		})
 	}

@@ -60,7 +60,7 @@ type idpSteps interface {
 	SaveRefreshToken(ctx context.Context, codeID, redirectURI string, t *refreshTokenData) (*hubauth.Client, error)
 	SignRefreshToken(ctx context.Context, signKey signpb.PrivateKey, t *signedRefreshTokenData) (string, error)
 	RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error)
-
+	VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken, now time.Time) error
 	SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData) (string, error)
 }
 
@@ -436,34 +436,11 @@ func (s *idpService) ListAudiences(ctx context.Context, req *hubauth.ListAudienc
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		dbToken, err := s.db.GetRefreshToken(ctx, rt.ID)
-		if err != nil {
-			if errors.Is(err, hubauth.ErrNotFound) {
-				return &hubauth.OAuthError{
-					Code:        "invalid_grant",
-					Description: "refresh token not found",
-				}
-			}
-			return fmt.Errorf("idp: error getting refresh token %s: %w", rt.ID, err)
-		}
-		if !dbToken.IssueTime.Truncate(time.Millisecond).Equal(rt.IssueTime.Truncate(time.Millisecond)) {
-			return &hubauth.OAuthError{
-				Code:        "invalid_grant",
-				Description: "unexpected refresh token issue time",
-			}
-		}
-		if time.Now().After(dbToken.ExpiryTime) {
-			return &hubauth.OAuthError{
-				Code:        "invalid_grant",
-				Description: "refresh_token expired",
-			}
-		}
-		return nil
+		return s.steps.VerifyRefreshToken(ctx, rt, s.clock.Now())
 	})
 
 	var userGroups []string
-	g.Go(func() error {
-		var err error
+	g.Go(func() (err error) {
 		userGroups, err = s.db.GetCachedMemberGroups(ctx, rt.UserID)
 		if err != nil {
 			return fmt.Errorf("idp: error getting cached groups for user %s: %w", rt.UserID, err)
@@ -472,8 +449,7 @@ func (s *idpService) ListAudiences(ctx context.Context, req *hubauth.ListAudienc
 	})
 
 	var clientAudiences []*hubauth.Audience
-	g.Go(func() error {
-		var err error
+	g.Go(func() (err error) {
 		clientAudiences, err = s.db.ListAudiencesForClient(ctx, rt.ClientID)
 		if err != nil {
 			return fmt.Errorf("idp: error listing audiences for client %s: %w", rt.ClientID, err)

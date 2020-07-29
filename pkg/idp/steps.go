@@ -322,6 +322,33 @@ func (s *steps) RenewRefreshToken(ctx context.Context, clientID, oldTokenID stri
 	return newToken, nil
 }
 
+func (s *steps) VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken, now time.Time) error {
+	dbToken, err := s.db.GetRefreshToken(ctx, rt.ID)
+	if err != nil {
+		if errors.Is(err, hubauth.ErrNotFound) {
+			return &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "refresh token not found",
+			}
+		}
+		return fmt.Errorf("idp: error getting refresh token %s: %w", rt.ID, err)
+	}
+	if !dbToken.IssueTime.Truncate(time.Millisecond).Equal(rt.IssueTime.Truncate(time.Millisecond)) {
+		return &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "unexpected refresh token issue time",
+		}
+	}
+	if now.After(dbToken.ExpiryTime) {
+		return &hubauth.OAuthError{
+			Code:        "invalid_grant",
+			Description: "refresh_token expired",
+		}
+	}
+
+	return nil
+}
+
 type accessTokenData struct {
 	clientID  string
 	userID    string

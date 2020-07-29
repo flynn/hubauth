@@ -2,8 +2,10 @@ package idp
 
 import (
 	"context"
+	"crypto"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"net/url"
 	"testing"
 	"time"
@@ -16,6 +18,8 @@ import (
 	"github.com/flynn/hubauth/pkg/kmssign/kmssim"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
+	"github.com/flynn/hubauth/pkg/signpb"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -36,14 +40,76 @@ func (m *mockAuthService) Exchange(ctx context.Context, rr *rp.RedirectResult) (
 	return args.Get(0).(*rp.Token), args.Error(1)
 }
 
-func newTestIdPService(t *testing.T) *idpService {
+func audienceKeyNamer(s string) string {
+	return fmt.Sprintf("%s_named", s)
+}
+
+type mockSteps struct {
+	mock.Mock
+}
+
+var _ idpSteps = (*mockSteps)(nil)
+
+func (m *mockSteps) CreateCode(ctx context.Context, code *hubauth.Code) (string, string, error) {
+	args := m.Called(ctx, code)
+	return args.String(0), args.String(1), args.Error(2)
+}
+func (m *mockSteps) VerifyCode(ctx context.Context, c *verifyCodeData) (*hubauth.Code, error) {
+	args := m.Called(ctx, c)
+	return args.Get(0).(*hubauth.Code), args.Error(1)
+}
+func (m *mockSteps) SignCode(ctx context.Context, signKey hmacpb.Key, code *signCodeData) (string, error) {
+	args := m.Called(ctx, signKey, code)
+	return args.String(0), args.Error(1)
+}
+func (m *mockSteps) VerifyAudience(ctx context.Context, audienceURL, clientID, userID string) error {
+	args := m.Called(ctx, audienceURL, clientID, userID)
+	return args.Error(0)
+}
+func (m *mockSteps) VerifyUserGroups(ctx context.Context, userID string) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+func (m *mockSteps) AllocateRefreshToken(ctx context.Context, clientID string) (string, error) {
+	args := m.Called(ctx, clientID)
+	return args.String(0), args.Error(1)
+}
+func (m *mockSteps) SaveRefreshToken(ctx context.Context, codeID, redirectURI string, t *refreshTokenData) (*hubauth.Client, error) {
+	args := m.Called(ctx, codeID, redirectURI, t)
+	return args.Get(0).(*hubauth.Client), args.Error(1)
+}
+func (m *mockSteps) SignRefreshToken(ctx context.Context, signKey signpb.PrivateKey, t *signedRefreshTokenData) (string, error) {
+	args := m.Called(ctx, signKey, t)
+	return args.String(0), args.Error(1)
+}
+func (m *mockSteps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData) (string, error) {
+	args := m.Called(ctx, signKey, t)
+	return args.String(0), args.Error(1)
+}
+func (m *mockSteps) RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error) {
+	args := m.Called(ctx, clientID, oldTokenID, oldTokenIssueTime, now)
+	return args.Get(0).(*hubauth.RefreshToken), args.Error(1)
+}
+
+type mockClock struct {
+	mock.Mock
+}
+
+var _ clock = (*mockClock)(nil)
+
+func (m *mockClock) Now() time.Time {
+	args := m.Called()
+	return args.Get(0).(time.Time)
+}
+
+func newTestIdPService(t *testing.T, kmsKeys ...string) *idpService {
 	dsc, err := gdatastore.NewClient(context.Background(), "test")
 	require.NoError(t, err)
 	db := datastore.New(dsc)
 	authService := new(mockAuthService)
 
 	refreshKeyName := "refreshKey"
-	kmsKeys := []string{refreshKeyName}
+	kmsKeys = append(kmsKeys, refreshKeyName)
 	kms := kmssim.NewClient(kmsKeys)
 
 	codeKey := make(hmacpb.Key, 32)
@@ -51,15 +117,14 @@ func newTestIdPService(t *testing.T) *idpService {
 	require.NoError(t, err)
 	require.Equal(t, len(codeKey), 32)
 
-	ctx := context.Background()
-	refreshKey, err := kmssign.NewKey(ctx, kms, refreshKeyName)
+	refreshKey, err := kmssign.NewKey(context.Background(), kms, refreshKeyName)
 	require.NoError(t, err)
 
-	audienceKey := func(s string) string {
-		return s
-	}
+	s := New(db, authService, kms, codeKey, refreshKey, audienceKeyNamer).(*idpService)
+	s.steps = &mockSteps{}
+	s.clock = &mockClock{}
 
-	return New(db, authService, kms, codeKey, refreshKey, audienceKey).(*idpService)
+	return s
 }
 
 func TestIDPServiceAuthorizeUserRedirect(t *testing.T) {
@@ -222,96 +287,125 @@ func TestIDPServiceAuthorizeUserRedirectParameters(t *testing.T) {
 }
 
 func TestAuthorizeCodeRedirect(t *testing.T) {
-	idpService := newTestIdPService(t)
+	redirectURI := "http://redirect/uri"
+	clientState := "clientState"
+	signedCode := "signedCode"
 
-	redirectURI := "http://redirect/url"
-	clientID, err := idpService.db.CreateClient(context.Background(), &hubauth.Client{
-		ID: "clientID123",
-		RedirectURIs: []string{
-			redirectURI,
-			oobRedirectURI,
+	testCases := []struct {
+		Desc             string
+		RedirectURI      string
+		ResponseMode     string
+		ValidateResponse func(t *testing.T, resp *hubauth.AuthorizeResponse, err error)
+	}{
+		{
+			Desc:         "returns code in fragment",
+			RedirectURI:  redirectURI,
+			ResponseMode: hubauth.ResponseModeFragment,
+			ValidateResponse: func(t *testing.T, resp *hubauth.AuthorizeResponse, err error) {
+				require.NoError(t, err)
+				require.Empty(t, resp.DisplayCode)
+				require.Empty(t, resp.RPState)
+				require.Contains(t, resp.URL, redirectURI)
+
+				u, err := url.Parse(resp.URL)
+				require.NoError(t, err)
+
+				fragmentValues, err := url.ParseQuery(u.Fragment)
+				require.NoError(t, err)
+				require.Equal(t, clientState, fragmentValues.Get("state"))
+				require.Equal(t, signedCode, fragmentValues.Get("code"))
+			},
 		},
-		RefreshTokenExpiry: time.Second * 60,
-	})
-	require.NoError(t, err)
+		{
+			Desc:         "returns code in query string",
+			RedirectURI:  redirectURI,
+			ResponseMode: hubauth.ResponseModeQuery,
+			ValidateResponse: func(t *testing.T, resp *hubauth.AuthorizeResponse, err error) {
+				require.NoError(t, err)
+				require.Empty(t, resp.DisplayCode)
+				require.Empty(t, resp.RPState)
+				require.Contains(t, resp.URL, redirectURI)
 
-	userID := "userID"
-	userEmail := "user@email.com"
-	idpService.db.SetCachedGroup(context.Background(), &hubauth.CachedGroup{
-		Domain:  "group1Domain",
-		GroupID: "group1",
-		Email:   "group1@group1Domain",
-	}, []*hubauth.CachedGroupMember{{UserID: userID, Email: userEmail}})
+				u, err := url.Parse(resp.URL)
+				require.NoError(t, err)
 
-	req := &hubauth.AuthorizeCodeRequest{
-		AuthorizeUserRequest: hubauth.AuthorizeUserRequest{
-			ClientID:      clientID,
-			ClientState:   "clientState",
-			Nonce:         "nonce",
-			CodeChallenge: "challenge",
+				require.Equal(t, clientState, u.Query().Get("state"))
+				require.Equal(t, signedCode, u.Query().Get("code"))
+			},
 		},
-		RPState: "rpState",
-		Params:  url.Values{"exchange": {"params"}},
+		{
+			Desc:         "returns DisplayCode when redirectURI is OOB",
+			RedirectURI:  oobRedirectURI,
+			ResponseMode: hubauth.ResponseModeQuery,
+			ValidateResponse: func(t *testing.T, resp *hubauth.AuthorizeResponse, err error) {
+				require.NoError(t, err)
+				require.Empty(t, resp.RPState)
+				require.Empty(t, resp.URL)
+				require.Equal(t, signedCode, resp.DisplayCode)
+			},
+		},
 	}
 
-	redirectResult := &rp.RedirectResult{
-		State:  req.RPState,
-		Params: req.Params,
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			idpService := newTestIdPService(t)
+
+			userID := "userID"
+			userEmail := "user@email.com"
+
+			req := &hubauth.AuthorizeCodeRequest{
+				AuthorizeUserRequest: hubauth.AuthorizeUserRequest{
+					ClientID:      "clientID",
+					ClientState:   clientState,
+					Nonce:         "nonce",
+					CodeChallenge: "challenge",
+					RedirectURI:   testCase.RedirectURI,
+					ResponseMode:  testCase.ResponseMode,
+				},
+				RPState: "rpState",
+				Params:  url.Values{"exchange": {"params"}},
+			}
+
+			redirectResult := &rp.RedirectResult{
+				State:  req.RPState,
+				Params: req.Params,
+			}
+
+			ctx := hubauth.InitClientInfo(context.Background())
+			idpService.rp.(*mockAuthService).On("Exchange", mock.Anything, redirectResult).Return(&rp.Token{
+				UserID: userID,
+				Email:  userEmail,
+			}, nil)
+
+			now := time.Now()
+			idpService.clock.(*mockClock).On("Now").Return(now)
+
+			codeID := "codeID"
+			codeSecret := "codeSecret"
+			idpService.steps.(*mockSteps).On("CreateCode", mock.Anything, &hubauth.Code{
+				ClientID:      req.ClientID,
+				UserID:        userID,
+				UserEmail:     userEmail,
+				RedirectURI:   req.RedirectURI,
+				Nonce:         req.Nonce,
+				PKCEChallenge: req.CodeChallenge,
+				ExpiryTime:    now.Add(codeExpiry),
+			}).Return(codeID, codeSecret, nil)
+
+			idpService.steps.(*mockSteps).On("SignCode", mock.Anything, idpService.codeKey, &signCodeData{
+				Key:        codeID,
+				Secret:     codeSecret,
+				UserID:     userID,
+				UserEmail:  userEmail,
+				ExpiryTime: now.Add(codeExpiry),
+			}).Return(signedCode, nil)
+
+			idpService.steps.(*mockSteps).On("VerifyUserGroups", mock.Anything, userID).Return(nil)
+
+			resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
+			testCase.ValidateResponse(t, resp, err)
+		})
 	}
-
-	ctx := hubauth.InitClientInfo(context.Background())
-	idpService.rp.(*mockAuthService).On("Exchange", ctx, redirectResult).Return(&rp.Token{
-		UserID: userID,
-		Email:  userEmail,
-	}, nil)
-
-	t.Run("AuthorizeCodeRedirect returns a valid code in fragment", func(t *testing.T) {
-		req.RedirectURI = redirectURI
-		req.ResponseMode = hubauth.ResponseModeFragment
-
-		resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
-		require.NoError(t, err)
-		require.Empty(t, resp.DisplayCode)
-		require.Empty(t, resp.RPState)
-		require.Contains(t, resp.URL, req.RedirectURI)
-
-		u, err := url.Parse(resp.URL)
-		require.NoError(t, err)
-
-		fragmentValues, err := url.ParseQuery(u.Fragment)
-		require.NoError(t, err)
-		require.Equal(t, req.ClientState, fragmentValues.Get("state"))
-
-		assertValidCode(t, idpService.codeKey, fragmentValues.Get("code"), userID, userEmail)
-	})
-
-	t.Run("AuthorizeCodeRedirect returns a valid code in query string", func(t *testing.T) {
-		req.RedirectURI = redirectURI
-		req.ResponseMode = hubauth.ResponseModeQuery
-
-		resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
-		require.NoError(t, err)
-		require.Empty(t, resp.DisplayCode)
-		require.Empty(t, resp.RPState)
-		require.Contains(t, resp.URL, req.RedirectURI)
-
-		u, err := url.Parse(resp.URL)
-		require.NoError(t, err)
-
-		require.Equal(t, req.ClientState, u.Query().Get("state"))
-		assertValidCode(t, idpService.codeKey, u.Query().Get("code"), userID, userEmail)
-	})
-
-	t.Run("AuthorizeCodeRedirect returns DisplayCode when redirectURI is OOB", func(t *testing.T) {
-		req.RedirectURI = oobRedirectURI
-		resp, err := idpService.AuthorizeCodeRedirect(ctx, req)
-		require.NoError(t, err)
-		require.NotEmpty(t, resp.DisplayCode)
-		require.Empty(t, resp.RPState)
-		require.Empty(t, resp.URL)
-
-		assertValidCode(t, idpService.codeKey, resp.DisplayCode, userID, userEmail)
-	})
 }
 
 func TestAuthorizeCodeRedirectExchangeErrors(t *testing.T) {
@@ -351,56 +445,369 @@ func TestAuthorizeCodeRedirectExchangeErrors(t *testing.T) {
 	}
 }
 
-func TestAuthorizeCodeRedirectUserWithoutGroup(t *testing.T) {
+func TestExchangeCode(t *testing.T) {
+	clientID := "clientID"
+	rtID := "rtID"
+
+	userID := "userID"
+	userEmail := "userEmail"
+
+	audienceURL := "audienceURL"
+	redirectURI := "http://redirect/uri"
+
+	codeVerifier := "codeVerifier"
+	codeID := []byte("codeID")
+	b64CodeID := base64Encode(codeID)
+	codeSecret := []byte("codeSecret")
+	b64CodeSecret := base64Encode(codeSecret)
+
+	nonce := "nonce"
+	refreshToken := "refreshToken"
+	accessToken := "accessToken"
+	refreshTokenExpiry := time.Second * 42
+
+	testCases := []struct {
+		Desc        string
+		AudienceURL string
+		Want        *hubauth.AccessToken
+	}{
+		{
+			Desc:        "returns an access token",
+			AudienceURL: audienceURL,
+			Want: &hubauth.AccessToken{
+				RefreshToken:          refreshToken,
+				AccessToken:           accessToken,
+				TokenType:             "Bearer",
+				ExpiresIn:             int(accessTokenDuration / time.Second),
+				Nonce:                 nonce,
+				Audience:              audienceURL,
+				RefreshTokenExpiresIn: int(refreshTokenExpiry / time.Second),
+				RedirectURI:           redirectURI,
+			},
+		},
+		{
+			Desc:        "returns a refresh token as access token",
+			AudienceURL: "",
+			Want: &hubauth.AccessToken{
+				RefreshToken:          refreshToken,
+				AccessToken:           refreshToken,
+				TokenType:             "RefreshToken",
+				ExpiresIn:             int(refreshTokenExpiry / time.Second),
+				Nonce:                 nonce,
+				Audience:              "",
+				RefreshTokenExpiresIn: int(refreshTokenExpiry / time.Second),
+				RedirectURI:           redirectURI,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+
+			idpService := newTestIdPService(t)
+
+			ctx := hubauth.InitClientInfo(context.Background())
+			now := time.Now()
+
+			expireTime, _ := ptypes.TimestampProto(now.Add(codeExpiry))
+			signedCode, err := hmacpb.SignMarshal(idpService.codeKey, &pb.Code{
+				Key:        codeID,
+				Secret:     codeSecret,
+				UserId:     userID,
+				UserEmail:  userEmail,
+				ExpireTime: expireTime,
+			})
+			require.NoError(t, err)
+
+			verifiedCode := &hubauth.Code{
+				Nonce: nonce,
+			}
+
+			client := &hubauth.Client{
+				RefreshTokenExpiry: refreshTokenExpiry,
+			}
+
+			rtData := &refreshTokenData{
+				Key:       rtID,
+				IssueTime: now,
+				UserID:    userID,
+				UserEmail: userEmail,
+				ClientID:  clientID,
+			}
+
+			signedRTData := &signedRefreshTokenData{
+				refreshTokenData: rtData,
+				ExpiryTime:       now.Add(refreshTokenExpiry),
+			}
+
+			idpService.clock.(*mockClock).On("Now").Return(now)
+			idpService.steps.(*mockSteps).On("AllocateRefreshToken", mock.Anything, clientID).Return(rtID, nil)
+			idpService.steps.(*mockSteps).On("VerifyAudience", mock.Anything, testCase.AudienceURL, clientID, userID).Return(nil)
+			idpService.steps.(*mockSteps).On("VerifyCode", mock.Anything, &verifyCodeData{
+				ClientID:     clientID,
+				RedirectURI:  redirectURI,
+				CodeVerifier: codeVerifier,
+				CodeID:       b64CodeID,
+				CodeSecret:   b64CodeSecret,
+			}).Return(verifiedCode, nil)
+			idpService.steps.(*mockSteps).On("SaveRefreshToken", mock.Anything, b64CodeID, redirectURI, rtData).Return(client, nil)
+			idpService.steps.(*mockSteps).On("SignRefreshToken", mock.Anything, idpService.refreshKey, signedRTData).Return(refreshToken, nil)
+			idpService.steps.(*mockSteps).On("SignAccessToken", mock.Anything, kmssign.NewPrivateKey(idpService.kms, audienceKeyNamer(audienceURL), crypto.SHA256), &accessTokenData{
+				clientID:  clientID,
+				userID:    userID,
+				userEmail: userEmail,
+			}).Return(accessToken, nil)
+
+			req := &hubauth.ExchangeCodeRequest{
+				ClientID:     clientID,
+				Code:         base64Encode(signedCode),
+				Audience:     testCase.AudienceURL,
+				RedirectURI:  redirectURI,
+				CodeVerifier: codeVerifier,
+			}
+			got, err := idpService.ExchangeCode(ctx, req)
+			require.NoError(t, err)
+
+			require.Equal(t, testCase.Want, got)
+		})
+	}
+}
+
+func TestExchangeCodeErrors(t *testing.T) {
 	idpService := newTestIdPService(t)
 
-	redirectURI := "http://redirect/uri"
-	clientID, err := idpService.db.CreateClient(context.Background(), &hubauth.Client{
-		ID: "clientID123",
-		RedirectURIs: []string{
-			redirectURI,
-		},
-		RefreshTokenExpiry: time.Second * 60,
+	expiredTime, _ := ptypes.TimestampProto(time.Now().Add(-1 * time.Second))
+	expiredCode, err := hmacpb.SignMarshal(idpService.codeKey, &pb.Code{
+		ExpireTime: expiredTime,
 	})
 	require.NoError(t, err)
 
-	req := &hubauth.AuthorizeCodeRequest{
-		AuthorizeUserRequest: hubauth.AuthorizeUserRequest{
-			ClientID:      clientID,
-			RedirectURI:   redirectURI,
-			ClientState:   "clientState",
-			Nonce:         "nonce",
-			CodeChallenge: "challenge",
-			ResponseMode:  hubauth.ResponseModeFragment,
-		},
-		RPState: "rp_state",
-		Params:  url.Values{"req": {"params"}},
-	}
-
-	ctx := hubauth.InitClientInfo(context.Background())
-	redirectResult := &rp.RedirectResult{
-		State:  req.RPState,
-		Params: req.Params,
-	}
-
-	idpService.rp.(*mockAuthService).On("Exchange", ctx, redirectResult).Return(&rp.Token{
-		UserID: "userIDNoGroup",
-		Email:  "userEmailNoGroup",
-	}, nil)
-
-	_, err = idpService.AuthorizeCodeRedirect(ctx, req)
-	require.EqualError(t, err, hubauth.OAuthError{
-		Code:        "access_denied",
-		Description: "unknown user",
-	}.Error())
-}
-
-func assertValidCode(t *testing.T, codeKey []byte, b64code, userID, userEmail string) {
-	code, err := base64Decode(b64code)
+	randomCodeKey := make(hmacpb.Key, 32)
+	_, err = rand.Read(randomCodeKey)
+	require.NoError(t, err)
+	require.Equal(t, len(randomCodeKey), 32)
+	wrongKeyCode, err := hmacpb.SignMarshal(randomCodeKey, &pb.Code{
+		ExpireTime: expiredTime,
+	})
 	require.NoError(t, err)
 
-	codeInfo := &pb.Code{}
-	require.NoError(t, hmacpb.VerifyUnmarshal(codeKey, code, codeInfo))
-	require.Equal(t, userID, codeInfo.UserId)
-	require.Equal(t, userEmail, codeInfo.UserEmail)
+	idpService.clock.(*mockClock).On("Now").Return(time.Now())
+
+	testCases := []struct {
+		Code string
+		Err  *hubauth.OAuthError
+	}{
+		{
+			Code: "not b64 valid",
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "invalid code encoding",
+			},
+		},
+		{
+			Code: base64Encode([]byte("not a code")),
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "invalid code",
+			},
+		},
+		{
+			Code: base64Encode(wrongKeyCode),
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "invalid code",
+			},
+		},
+		{
+			Code: base64Encode(expiredCode),
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "expired code",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Err.Description, func(t *testing.T) {
+			req := &hubauth.ExchangeCodeRequest{
+				Code: testCase.Code,
+			}
+			_, err := idpService.ExchangeCode(context.Background(), req)
+			require.EqualError(t, err, testCase.Err.Error())
+		})
+	}
+}
+
+func TestRefreshToken(t *testing.T) {
+
+	now := time.Now()
+
+	oldTokenID := []byte("rtID")
+	b64OldTokenID := base64Encode(oldTokenID)
+	issueTime := now.Add(-10 * time.Second)
+	issueTimeProto, _ := ptypes.TimestampProto(issueTime)
+	issueTimeFromProto, _ := ptypes.Timestamp(issueTimeProto)
+	userID := "userID"
+	userEmail := "userEmail"
+
+	clientID := []byte("clientID")
+	b64ClientID := base64Encode(clientID)
+
+	audienceURL := "audienceURL"
+	redirectURI := "http://redirect/uri"
+	refreshTokenExpire := 60 * time.Second
+	expireTimeProto, _ := ptypes.TimestampProto(issueTime.Add(refreshTokenExpire))
+
+	newRefreshToken := &hubauth.RefreshToken{
+		RedirectURI: redirectURI,
+		ExpiryTime:  issueTime.Add(refreshTokenExpire),
+	}
+	newRefreshTokenStr := "newRefreshTokenStr"
+	newAccessTokenStr := "newAccessToken"
+
+	testCases := []struct {
+		Desc        string
+		AudienceURL string
+		Want        *hubauth.AccessToken
+	}{
+		{
+			Desc:        "returns a new access token",
+			AudienceURL: audienceURL,
+			Want: &hubauth.AccessToken{
+				RefreshToken:          newRefreshTokenStr,
+				AccessToken:           newAccessTokenStr,
+				TokenType:             "Bearer",
+				ExpiresIn:             int(accessTokenDuration / time.Second),
+				Audience:              audienceURL,
+				RefreshTokenExpiresIn: int(time.Until(issueTime.Add(refreshTokenExpire)) / time.Second),
+				RedirectURI:           redirectURI,
+			},
+		},
+		{
+			Desc:        "returns a new refresh token as access token",
+			AudienceURL: "",
+			Want: &hubauth.AccessToken{
+				RefreshToken:          newRefreshTokenStr,
+				AccessToken:           newRefreshTokenStr,
+				TokenType:             "RefreshToken",
+				ExpiresIn:             int(time.Until(issueTime.Add(refreshTokenExpire)) / time.Second),
+				Audience:              "",
+				RefreshTokenExpiresIn: int(time.Until(issueTime.Add(refreshTokenExpire)) / time.Second),
+				RedirectURI:           redirectURI,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			idpService := newTestIdPService(t)
+
+			idpService.clock.(*mockClock).On("Now").Return(now)
+			idpService.steps.(*mockSteps).On("VerifyAudience", mock.Anything, testCase.AudienceURL, b64ClientID, userID).Return(nil)
+			idpService.steps.(*mockSteps).On("RenewRefreshToken", mock.Anything, b64ClientID, b64OldTokenID, issueTimeFromProto, now).Return(newRefreshToken, nil)
+			idpService.steps.(*mockSteps).On("SignRefreshToken", mock.Anything, idpService.refreshKey, &signedRefreshTokenData{
+				refreshTokenData: &refreshTokenData{
+					Key:       b64OldTokenID,
+					IssueTime: now,
+					UserID:    userID,
+					UserEmail: userEmail,
+					ClientID:  b64ClientID,
+				},
+				ExpiryTime: expireTimeProto.AsTime(),
+			}).Return(newRefreshTokenStr, nil)
+			signKey := kmssign.NewPrivateKey(idpService.kms, audienceKeyNamer(testCase.AudienceURL), crypto.SHA256)
+			idpService.steps.(*mockSteps).On("SignAccessToken", mock.Anything, signKey, &accessTokenData{
+				clientID:  b64ClientID,
+				userID:    userID,
+				userEmail: userEmail,
+			}).Return(newAccessTokenStr, nil)
+
+			oldTokenSigned, err := signpb.SignMarshal(context.Background(), idpService.refreshKey, &pb.RefreshToken{
+				Key:        oldTokenID,
+				IssueTime:  issueTimeProto,
+				UserId:     userID,
+				UserEmail:  userEmail,
+				ClientId:   clientID,
+				ExpireTime: expireTimeProto,
+			})
+			require.NoError(t, err)
+
+			ctx := hubauth.InitClientInfo(context.Background())
+
+			req := &hubauth.RefreshTokenRequest{
+				ClientID:     base64Encode(clientID),
+				Audience:     testCase.AudienceURL,
+				RefreshToken: base64Encode(oldTokenSigned),
+			}
+
+			got, err := idpService.RefreshToken(ctx, req)
+			require.NoError(t, err)
+
+			require.Equal(t, testCase.Want, got)
+		})
+	}
+}
+
+func TestRefreshTokenErrors(t *testing.T) {
+	wrongKeyName := "wrongKey"
+	idpService := newTestIdPService(t, wrongKeyName)
+
+	wrongKey, err := kmssign.NewKey(context.Background(), idpService.kms, wrongKeyName)
+	require.NoError(t, err)
+
+	wrongKeyRefreshToken, err := signpb.SignMarshal(context.Background(), wrongKey, &pb.RefreshToken{})
+	require.NoError(t, err)
+
+	now := time.Now()
+	expiredTime, _ := ptypes.TimestampProto(now.Add(-1 * time.Second))
+	expiredRefreshToken, err := signpb.SignMarshal(context.Background(), idpService.refreshKey, &pb.RefreshToken{
+		ExpireTime: expiredTime,
+	})
+	require.NoError(t, err)
+
+	idpService.clock.(*mockClock).On("Now").Return(now)
+
+	testCases := []struct {
+		RefreshToken string
+		Err          *hubauth.OAuthError
+	}{
+		{
+			RefreshToken: "not b64 valid",
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "malformed refresh_token",
+			},
+		},
+		{
+			RefreshToken: base64Encode([]byte("not a refresh token")),
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "invalid refresh_token",
+			},
+		},
+		{
+			RefreshToken: base64Encode(wrongKeyRefreshToken),
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "invalid refresh_token",
+			},
+		},
+		{
+			RefreshToken: base64Encode(expiredRefreshToken),
+			Err: &hubauth.OAuthError{
+				Code:        "invalid_grant",
+				Description: "expired refresh token",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Err.Description, func(t *testing.T) {
+			req := &hubauth.RefreshTokenRequest{
+				RefreshToken: testCase.RefreshToken,
+			}
+			_, err := idpService.RefreshToken(context.Background(), req)
+			require.EqualError(t, err, testCase.Err.Error())
+		})
+	}
 }

@@ -22,6 +22,6 @@ require (
 	golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae // indirect
 	google.golang.org/api v0.29.0
 	google.golang.org/genproto v0.0.0-20200729003335-053ba62fc06f
-	google.golang.org/grpc v1.30.0
+	google.golang.org/grpc v1.31.0
 	google.golang.org/protobuf v1.25.0
 )

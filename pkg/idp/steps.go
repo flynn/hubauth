@@ -355,7 +355,7 @@ type accessTokenData struct {
 	userEmail string
 }
 
-func (s *steps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData) (token string, err error) {
+func (s *steps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData, now time.Time) (token string, err error) {
 	ctx, span := trace.StartSpan(ctx, "idp.SignAccessToken")
 	span.AddAttributes(
 		trace.StringAttribute("client_id", t.clientID),
@@ -364,7 +364,6 @@ func (s *steps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, 
 	)
 	defer span.End()
 
-	now := time.Now()
 	exp, _ := ptypes.TimestampProto(now.Add(accessTokenDuration))
 	iss, _ := ptypes.TimestampProto(now)
 	msg := &pb.AccessToken{

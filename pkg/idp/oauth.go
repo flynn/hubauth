@@ -61,7 +61,7 @@ type idpSteps interface {
 	SignRefreshToken(ctx context.Context, signKey signpb.PrivateKey, t *signedRefreshTokenData) (string, error)
 	RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error)
 	VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken, now time.Time) error
-	SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData) (string, error)
+	SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData, now time.Time) (string, error)
 }
 
 type idpService struct {
@@ -327,7 +327,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			clientID:  req.ClientID,
 			userID:    codeInfo.UserId,
 			userEmail: codeInfo.UserEmail,
-		})
+		}, now)
 		return err
 	})
 
@@ -400,7 +400,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			clientID:  req.ClientID,
 			userID:    oldToken.UserID,
 			userEmail: oldToken.UserEmail,
-		})
+		}, now)
 		return err
 	})
 

@@ -82,8 +82,8 @@ func (m *mockSteps) SignRefreshToken(ctx context.Context, signKey signpb.Private
 	args := m.Called(ctx, signKey, t)
 	return args.String(0), args.Error(1)
 }
-func (m *mockSteps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData) (string, error) {
-	args := m.Called(ctx, signKey, t)
+func (m *mockSteps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData, now time.Time) (string, error) {
+	args := m.Called(ctx, signKey, t, now)
 	return args.String(0), args.Error(1)
 }
 func (m *mockSteps) RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error) {
@@ -560,7 +560,7 @@ func TestExchangeCode(t *testing.T) {
 				clientID:  clientID,
 				userID:    userID,
 				userEmail: userEmail,
-			}).Return(accessToken, nil)
+			}, now).Return(accessToken, nil)
 
 			req := &hubauth.ExchangeCodeRequest{
 				ClientID:     clientID,
@@ -724,7 +724,7 @@ func TestRefreshToken(t *testing.T) {
 				clientID:  b64ClientID,
 				userID:    userID,
 				userEmail: userEmail,
-			}).Return(newAccessTokenStr, nil)
+			}, now).Return(newAccessTokenStr, nil)
 
 			oldTokenSigned, err := signpb.SignMarshal(context.Background(), idpService.refreshKey, &pb.RefreshToken{
 				Key:        oldTokenID,

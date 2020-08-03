@@ -21,6 +21,16 @@ import (
 
 const authCookie = "hubauth_authorize"
 
+type clock interface {
+	Now() time.Time
+}
+
+type clockImpl struct{}
+
+func (clockImpl) Now() time.Time {
+	return time.Now()
+}
+
 type Config struct {
 	IdP        hubauth.IdPService
 	CookieKey  hmacpb.Key
@@ -30,11 +40,12 @@ type Config struct {
 }
 
 func New(conf Config) http.Handler {
-	return &api{conf}
+	return &api{Config: conf, clock: clockImpl{}}
 }
 
 type api struct {
 	Config
+	clock clock
 }
 
 type loggingResponseWriter struct {
@@ -60,7 +71,7 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
-	startTime := time.Now()
+	startTime := a.clock.Now()
 	switch {
 	case req.Method == "GET" && req.URL.Path == "/authorize":
 		a.AuthorizeUser(w, req)
@@ -163,7 +174,7 @@ func (a *api) AuthorizeUser(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	expiry, _ := ptypes.TimestampProto(time.Now().Add(cookieExpiry))
+	expiry, _ := ptypes.TimestampProto(a.clock.Now().Add(cookieExpiry))
 
 	cookieData := &pb.AuthorizeCookie{
 		RpState:       res.RPState,
@@ -227,7 +238,7 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 		})
 		return
 	}
-	if time.Now().After(exp) {
+	if a.clock.Now().After(exp) {
 		a.handleErr(w, req, &hubauth.OAuthError{
 			Code:        "invalid_request",
 			Description: "expired auth cookie",

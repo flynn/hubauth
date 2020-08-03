@@ -234,7 +234,7 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 	if req.RedirectURI == oobRedirectURI {
 		return &hubauth.AuthorizeResponse{DisplayCode: codeRes}, nil
 	}
-	dest := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == hubauth.ResponseModeFragment, map[string]string{
+	dest, isLocalhost := hubauth.RedirectURI(req.RedirectURI, req.ResponseMode == hubauth.ResponseModeFragment, map[string]string{
 		"code":  codeRes,
 		"state": req.ClientState,
 	})
@@ -242,7 +242,10 @@ func (s *idpService) AuthorizeCodeRedirect(ctx context.Context, req *hubauth.Aut
 		return nil, fmt.Errorf("idp: error parsing redirect URI %q", req.RedirectURI)
 	}
 
-	return &hubauth.AuthorizeResponse{URL: dest}, nil
+	return &hubauth.AuthorizeResponse{
+		URL:          dest,
+		Interstitial: isLocalhost,
+	}, nil
 }
 
 func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.ExchangeCodeRequest) (*hubauth.AccessToken, error) {

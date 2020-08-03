@@ -267,10 +267,14 @@ func (a *api) AuthorizeCode(w http.ResponseWriter, req *http.Request) {
 	})
 	w.Header().Set("Referrer-Policy", "no-referrer")
 
-	if res.DisplayCode != "" {
+	if res.DisplayCode != "" || res.Interstitial {
 		w.Header().Set("Content-Type", "text/html; charset=utf8")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'")
-		codeDisplayHTML(res.DisplayCode, w)
+		if res.Interstitial {
+			redirectInterstitialHTML(res.URL, w)
+		} else {
+			codeDisplayHTML(res.DisplayCode, w)
+		}
 		return
 	}
 

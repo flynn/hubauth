@@ -32,7 +32,8 @@ type AuthorizeResponse struct {
 	URL     string
 	RPState string
 
-	DisplayCode string
+	Interstitial bool
+	DisplayCode  string
 }
 
 type ExchangeCodeRequest struct {

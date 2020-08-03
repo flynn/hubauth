@@ -3,6 +3,7 @@ package hubauth
 import (
 	"context"
 	"errors"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -178,17 +179,18 @@ func (e OAuthError) Error() string {
 }
 
 func (e OAuthError) RedirectURI(baseURL, state string, fragment bool) string {
-	return RedirectURI(baseURL, fragment, map[string]string{
+	res, _ := RedirectURI(baseURL, fragment, map[string]string{
 		"state":             state,
 		"error":             e.Code,
 		"error_description": e.Description,
 	})
+	return res
 }
 
-func RedirectURI(base string, fragment bool, data map[string]string) string {
+func RedirectURI(base string, fragment bool, data map[string]string) (string, bool) {
 	u, err := url.Parse(base)
 	if err != nil {
-		return ""
+		return "", false
 	}
 
 	var params url.Values
@@ -210,8 +212,13 @@ func RedirectURI(base string, fragment bool, data map[string]string) string {
 	} else {
 		u.RawQuery = params.Encode()
 	}
+	host, _, _ := net.SplitHostPort(u.Host)
+	if host == "" {
+		host = u.Host
+	}
+	isLocalhost := host == "127.0.0.1" || host == "localhost"
 
-	return u.String()
+	return u.String(), isLocalhost
 }
 
 type ClientInfo struct {

@@ -310,6 +310,7 @@ func TestAuthorizeCodeRedirect(t *testing.T) {
 				require.Empty(t, resp.DisplayCode)
 				require.Empty(t, resp.RPState)
 				require.Contains(t, resp.URL, redirectURI)
+				require.False(t, resp.Interstitial)
 
 				u, err := url.Parse(resp.URL)
 				require.NoError(t, err)
@@ -329,6 +330,7 @@ func TestAuthorizeCodeRedirect(t *testing.T) {
 				require.Empty(t, resp.DisplayCode)
 				require.Empty(t, resp.RPState)
 				require.Contains(t, resp.URL, redirectURI)
+				require.False(t, resp.Interstitial)
 
 				u, err := url.Parse(resp.URL)
 				require.NoError(t, err)
@@ -346,6 +348,43 @@ func TestAuthorizeCodeRedirect(t *testing.T) {
 				require.Empty(t, resp.RPState)
 				require.Empty(t, resp.URL)
 				require.Equal(t, signedCode, resp.DisplayCode)
+				require.False(t, resp.Interstitial)
+			},
+		},
+		{
+			Desc:         "returns Interstitial when redirectURI is localhost",
+			RedirectURI:  "http://localhost:8080/",
+			ResponseMode: hubauth.ResponseModeQuery,
+			ValidateResponse: func(t *testing.T, resp *hubauth.AuthorizeResponse, err error) {
+				require.NoError(t, err)
+				require.Empty(t, resp.DisplayCode)
+				require.Empty(t, resp.RPState)
+				require.Contains(t, resp.URL, "http://localhost:8080/")
+				require.True(t, resp.Interstitial)
+
+				u, err := url.Parse(resp.URL)
+				require.NoError(t, err)
+
+				require.Equal(t, clientState, u.Query().Get("state"))
+				require.Equal(t, signedCode, u.Query().Get("code"))
+			},
+		},
+		{
+			Desc:         "returns Interstitial when redirectURI is 127.0.0.1",
+			RedirectURI:  "http://127.0.0.1/",
+			ResponseMode: hubauth.ResponseModeQuery,
+			ValidateResponse: func(t *testing.T, resp *hubauth.AuthorizeResponse, err error) {
+				require.NoError(t, err)
+				require.Empty(t, resp.DisplayCode)
+				require.Empty(t, resp.RPState)
+				require.Contains(t, resp.URL, "http://127.0.0.1/")
+				require.True(t, resp.Interstitial)
+
+				u, err := url.Parse(resp.URL)
+				require.NoError(t, err)
+
+				require.Equal(t, clientState, u.Query().Get("state"))
+				require.Equal(t, signedCode, u.Query().Get("code"))
 			},
 		},
 	}

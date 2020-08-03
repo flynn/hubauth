@@ -152,7 +152,7 @@ func (s *steps) VerifyAudience(ctx context.Context, audienceURL, clientID, userI
 	err = s.checkUser(ctx, audience, userID)
 	if errors.Is(err, hubauth.ErrUnauthorizedUser) {
 		return &hubauth.OAuthError{
-			Code:        "invalid_grant",
+			Code:        "access_denied",
 			Description: "user is not authorized for access",
 		}
 	}

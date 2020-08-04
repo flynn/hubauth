@@ -202,8 +202,9 @@ func TestIDPServiceAuthorizeUserRedirectParameters(t *testing.T) {
 	challenge := "challenge"
 
 	testCases := []struct {
-		desc string
-		req  *hubauth.AuthorizeUserRequest
+		desc        string
+		req         *hubauth.AuthorizeUserRequest
+		expectedErr error
 	}{
 		{
 			desc: "unknown client",
@@ -280,12 +281,31 @@ func TestIDPServiceAuthorizeUserRedirectParameters(t *testing.T) {
 				ResponseMode:  "unknown",
 			},
 		},
+		{
+			desc: "rp error",
+			req: &hubauth.AuthorizeUserRequest{
+				ClientID:      clientID,
+				RedirectURI:   redirectURI,
+				ClientState:   clientState,
+				Nonce:         nonce,
+				CodeChallenge: challenge,
+				ResponseMode:  hubauth.ResponseModeQuery,
+			},
+			expectedErr: errors.New("redirect error"),
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.desc, func(t *testing.T) {
+			idpService := newTestIdPService(t)
+			idpService.rp.(*mockAuthService).On("Redirect", mock.Anything).Return(&rp.AuthCodeRedirect{}, testCase.expectedErr)
+
 			_, err := idpService.AuthorizeUserRedirect(context.Background(), testCase.req)
-			require.EqualError(t, err, testCase.desc)
+			if testCase.expectedErr == nil {
+				require.EqualError(t, err, testCase.desc)
+			} else {
+				require.Equal(t, testCase.expectedErr, errors.Unwrap(err))
+			}
 		})
 	}
 }
@@ -488,6 +508,58 @@ func TestAuthorizeCodeRedirectExchangeErrors(t *testing.T) {
 	}
 }
 
+func TestAuthorizeCodeRedirectStepErrors(t *testing.T) {
+	now := time.Now()
+
+	expectedErr := errors.New("expected")
+	testCases := []struct {
+		Desc                string
+		VerifyUserGroupsErr error
+		CreateCodeErr       error
+		SignCodeErr         error
+		ExpectedErr         error
+		IsUnwrapped         bool
+	}{
+		{
+			Desc:                "VerifyUserGroups error",
+			VerifyUserGroupsErr: expectedErr,
+			ExpectedErr:         expectedErr,
+			IsUnwrapped:         true,
+		},
+		{
+			Desc:          "CreateCode error",
+			CreateCodeErr: expectedErr,
+			ExpectedErr:   expectedErr,
+		},
+		{
+			Desc:        "SignCode error",
+			SignCodeErr: expectedErr,
+			ExpectedErr: expectedErr,
+			IsUnwrapped: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			idpService := newTestIdPService(t)
+			idpService.rp.(*mockAuthService).On("Exchange", mock.Anything, mock.Anything).Return(&rp.Token{}, nil)
+			idpService.clock.(*mockClock).On("Now").Return(now)
+
+			idpService.steps.(*mockSteps).On("CreateCode", mock.Anything, mock.Anything).Return("", "", testCase.CreateCodeErr)
+			idpService.steps.(*mockSteps).On("SignCode", mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignCodeErr)
+			idpService.steps.(*mockSteps).On("VerifyUserGroups", mock.Anything, mock.Anything).Return(testCase.VerifyUserGroupsErr)
+
+			_, err := idpService.AuthorizeCodeRedirect(context.Background(), &hubauth.AuthorizeCodeRequest{})
+
+			if !testCase.IsUnwrapped {
+				err = errors.Unwrap(err)
+			}
+			require.Equal(t, testCase.ExpectedErr, err)
+		})
+	}
+
+}
+
 func TestExchangeCode(t *testing.T) {
 	clientID := "clientID"
 	rtID := "rtID"
@@ -618,9 +690,11 @@ func TestExchangeCode(t *testing.T) {
 
 func TestExchangeCodeErrors(t *testing.T) {
 	idpService := newTestIdPService(t)
+	codeKey := idpService.codeKey
+	now := time.Now()
 
-	expiredTime, _ := ptypes.TimestampProto(time.Now().Add(-1 * time.Second))
-	expiredCode, err := hmacpb.SignMarshal(idpService.codeKey, &pb.Code{
+	expiredTime, _ := ptypes.TimestampProto(now.Add(-1 * time.Second))
+	expiredCode, err := hmacpb.SignMarshal(codeKey, &pb.Code{
 		ExpireTime: expiredTime,
 	})
 	require.NoError(t, err)
@@ -634,55 +708,117 @@ func TestExchangeCodeErrors(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	idpService.clock.(*mockClock).On("Now").Return(time.Now())
+	validTime, _ := ptypes.TimestampProto(now.Add(1 * time.Second))
+	validCode, err := hmacpb.SignMarshal(codeKey, &pb.Code{
+		ExpireTime: validTime,
+	})
+	require.NoError(t, err)
 
+	expectedErr := errors.New("expected error")
 	testCases := []struct {
-		Code string
-		Err  *hubauth.OAuthError
+		Desc              string
+		Code              string
+		ExpectedErr       error
+		AllocateErr       error
+		VerifyCodeErr     error
+		VerifyAudienceErr error
+		SaveErr           error
+		SignRTErr         error
+		SignATErr         error
+		NeedUnwrap        bool
 	}{
 		{
+			Desc: "invalid base64 code",
 			Code: "not b64 valid",
-			Err: &hubauth.OAuthError{
+			ExpectedErr: &hubauth.OAuthError{
 				Code:        "invalid_grant",
 				Description: "invalid code encoding",
 			},
 		},
 		{
+			Desc: "not a code",
 			Code: base64Encode([]byte("not a code")),
-			Err: &hubauth.OAuthError{
+			ExpectedErr: &hubauth.OAuthError{
 				Code:        "invalid_grant",
 				Description: "invalid code",
 			},
 		},
 		{
+			Desc: "wrong signature",
 			Code: base64Encode(wrongKeyCode),
-			Err: &hubauth.OAuthError{
+			ExpectedErr: &hubauth.OAuthError{
 				Code:        "invalid_grant",
 				Description: "invalid code",
 			},
 		},
 		{
+			Desc: "expired code",
 			Code: base64Encode(expiredCode),
-			Err: &hubauth.OAuthError{
+			ExpectedErr: &hubauth.OAuthError{
 				Code:        "invalid_grant",
 				Description: "expired code",
 			},
 		},
+		{
+			Desc:        "AllocateRefreshToken error",
+			Code:        base64Encode(validCode),
+			AllocateErr: expectedErr,
+			ExpectedErr: expectedErr,
+			NeedUnwrap:  true,
+		},
+		{
+			Desc:          "VerifyCode error",
+			Code:          base64Encode(validCode),
+			VerifyCodeErr: expectedErr,
+			ExpectedErr:   expectedErr,
+		},
+		{
+			Desc:        "SaveRefreshToken error",
+			Code:        base64Encode(validCode),
+			SaveErr:     expectedErr,
+			ExpectedErr: expectedErr,
+		},
+		{
+			Desc:        "SignRefreshToken error",
+			Code:        base64Encode(validCode),
+			SignRTErr:   expectedErr,
+			ExpectedErr: expectedErr,
+		},
+		{
+			Desc:        "SignAccessToken error",
+			Code:        base64Encode(validCode),
+			SignATErr:   expectedErr,
+			ExpectedErr: expectedErr,
+		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.Err.Description, func(t *testing.T) {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			idpService := newTestIdPService(t)
+			idpService.codeKey = codeKey
+			idpService.clock.(*mockClock).On("Now").Return(now)
+			idpService.steps.(*mockSteps).On("AllocateRefreshToken", mock.Anything, mock.Anything).Return("", testCase.AllocateErr)
+			idpService.steps.(*mockSteps).On("VerifyCode", mock.Anything, mock.Anything).Return(&hubauth.Code{}, testCase.VerifyCodeErr)
+			idpService.steps.(*mockSteps).On("VerifyAudience", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(testCase.VerifyAudienceErr)
+			idpService.steps.(*mockSteps).On("SaveRefreshToken", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&hubauth.Client{}, testCase.SaveErr)
+			idpService.steps.(*mockSteps).On("SignRefreshToken", mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignRTErr)
+			idpService.steps.(*mockSteps).On("SignAccessToken", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignATErr)
+
 			req := &hubauth.ExchangeCodeRequest{
-				Code: testCase.Code,
+				Code:     testCase.Code,
+				Audience: "audience",
 			}
 			_, err := idpService.ExchangeCode(context.Background(), req)
-			require.EqualError(t, err, testCase.Err.Error())
+
+			if testCase.NeedUnwrap {
+				err = errors.Unwrap(err)
+			}
+			require.Equal(t, testCase.ExpectedErr, err)
 		})
 	}
 }
 
 func TestRefreshToken(t *testing.T) {
-
 	now := time.Now()
 
 	oldTokenID := []byte("rtID")
@@ -807,6 +943,69 @@ func TestRefreshTokenErrors(t *testing.T) {
 			}
 			_, err := idpService.RefreshToken(context.Background(), req)
 			require.EqualError(t, err, testCase.Err.Error())
+		})
+	}
+}
+
+func TestRefreshTokenStepErrors(t *testing.T) {
+	expectedErr := errors.New("expected error")
+	now := time.Now()
+
+	testCases := []struct {
+		Desc              string
+		VerifyAudienceErr error
+		RenewRTErr        error
+		SignRTErr         error
+		SignATErr         error
+		ExpectedErr       error
+	}{
+		{
+			Desc:              "VerifyAudience error",
+			VerifyAudienceErr: expectedErr,
+			ExpectedErr:       expectedErr,
+		},
+		{
+			Desc:        "RenewRefreshToken error",
+			RenewRTErr:  expectedErr,
+			ExpectedErr: expectedErr,
+		},
+		{
+			Desc:        "SignRefreshToken error",
+			SignRTErr:   expectedErr,
+			ExpectedErr: expectedErr,
+		},
+		{
+			Desc:        "SignAccessToken error",
+			SignATErr:   expectedErr,
+			ExpectedErr: expectedErr,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			idpService := newTestIdPService(t)
+
+			iss, _ := ptypes.TimestampProto(now)
+			expireTime := now.Add(5 * time.Second)
+			expireTimeProto, _ := ptypes.TimestampProto(expireTime)
+			validRT, err := signpb.SignMarshal(context.Background(), idpService.refreshKey, &pb.RefreshToken{
+				IssueTime:  iss,
+				ExpireTime: expireTimeProto,
+			})
+			require.NoError(t, err)
+
+			req := &hubauth.RefreshTokenRequest{
+				RefreshToken: base64Encode(validRT),
+				Audience:     "audience",
+			}
+
+			idpService.clock.(*mockClock).On("Now").Return(now)
+			idpService.steps.(*mockSteps).On("VerifyAudience", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(testCase.VerifyAudienceErr)
+			idpService.steps.(*mockSteps).On("RenewRefreshToken", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&hubauth.RefreshToken{}, testCase.RenewRTErr)
+			idpService.steps.(*mockSteps).On("SignRefreshToken", mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignRTErr)
+			idpService.steps.(*mockSteps).On("SignAccessToken", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignATErr)
+
+			_, err = idpService.RefreshToken(context.Background(), req)
+			require.Equal(t, testCase.ExpectedErr, err)
 		})
 	}
 }

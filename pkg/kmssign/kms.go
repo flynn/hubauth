@@ -96,6 +96,10 @@ func (k *Key) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byt
 		return nil, fmt.Errorf("kmssign: incorrect hash function %v, required to be %v", opts.HashFunc(), k.hash)
 	}
 
+	if g, w := len(digest), k.hash.Size(); g != w {
+		return nil, fmt.Errorf("kmssign: invalid digest length, got %d bytes, want %d", g, w)
+	}
+
 	req := &kmspb.AsymmetricSignRequest{
 		Name: k.name,
 	}
@@ -104,6 +108,8 @@ func (k *Key) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byt
 		req.Digest = &kmspb.Digest{Digest: &kmspb.Digest_Sha256{Sha256: digest}}
 	case crypto.SHA384:
 		req.Digest = &kmspb.Digest{Digest: &kmspb.Digest_Sha384{Sha384: digest}}
+	default:
+		return nil, fmt.Errorf("kmssign: unsupported hash function %v", k.hash)
 	}
 
 	res, err := k.c.AsymmetricSign(ctx, req)
@@ -115,6 +121,12 @@ func (k *Key) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byt
 }
 
 func (k *Key) Verify(digest, sig []byte) bool {
+	// ecdsa.Verify will panic with a nil public key
+	// only happens if Verify is called from a custom created Key
+	// or one obtained from NewPrivateKey
+	if k.pub == nil {
+		panic("kmssign: nil ecdsa public key")
+	}
 	return verifyASN1(k.pub, digest, sig)
 }
 

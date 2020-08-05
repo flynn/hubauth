@@ -55,10 +55,15 @@ type googleUserPolicy struct {
 func (c *audience) Export() *hubauth.Audience {
 	policies := make([]*hubauth.GoogleUserPolicy, len(c.Policies))
 	for i, p := range c.Policies {
+		var grps []string
+		if p.Groups != "" {
+			grps = strings.Split(p.Groups, ",")
+		}
+
 		policies[i] = &hubauth.GoogleUserPolicy{
 			Domain:  p.Domain,
 			APIUser: p.APIUser,
-			Groups:  strings.Split(p.Groups, ","),
+			Groups:  grps,
 		}
 	}
 	return &hubauth.Audience{

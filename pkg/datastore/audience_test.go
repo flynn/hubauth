@@ -55,6 +55,32 @@ func TestAudienceCRD(t *testing.T) {
 	_, err = s.GetAudience(ctx, a.URL)
 	require.Truef(t, errors.Is(err, hubauth.ErrNotFound), "wrong err %v", err)
 }
+
+func TestAudienceEmptyGroups(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+
+	a := &hubauth.Audience{
+		URL:       "https://controller.nogrp.example.com",
+		Name:      "Test Cluster",
+		Type:      "flynn_controller",
+		ClientIDs: []string{"a"},
+		Policies: []*hubauth.GoogleUserPolicy{
+			{
+				Domain:  "example.com",
+				APIUser: "user@example.com",
+				Groups:  []string{},
+			},
+		},
+	}
+	err := s.CreateAudience(ctx, a)
+	require.NoError(t, err)
+
+	got, err := s.GetAudience(ctx, a.URL)
+	require.NoError(t, err)
+	require.Equal(t, 0, len(got.Policies[0].Groups))
+}
+
 func TestAudienceListForClientID(t *testing.T) {
 	s := newTestService(t)
 	ctx := context.Background()

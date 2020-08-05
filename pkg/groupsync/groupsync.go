@@ -2,37 +2,28 @@ package groupsync
 
 import (
 	"context"
-	"sync"
-	"time"
 
-	"cloud.google.com/go/compute/metadata"
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/hubauth"
-	"github.com/flynn/hubauth/pkg/impersonate"
 	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"golang.org/x/exp/errors/fmt"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 	admin "google.golang.org/api/admin/directory/v1"
-	"google.golang.org/api/option"
 )
 
 func New(db hubauth.DataStore, errInfo *clog.ErrInfo) *Service {
 	return &Service{
-		db:           db,
-		errInfo:      errInfo,
-		adminClients: make(map[string]*admin.Service),
+		db:      db,
+		acf:     newAdminClientFactory(),
+		errInfo: errInfo,
 	}
 }
 
 type Service struct {
-	db hubauth.DataStore
+	db  hubauth.DataStore
+	acf adminClientFactory
 
 	errInfo *clog.ErrInfo
-
-	mtx          sync.Mutex
-	adminClients map[string]*admin.Service
 }
 
 type domainGroup struct {
@@ -72,13 +63,12 @@ func (s *Service) Sync(ctx context.Context) error {
 		return nil
 	}
 
-	serviceAccountToken := google.ComputeTokenSource("", "https://www.googleapis.com/auth/iam")
-	serviceAccountEmail, err := metadata.Email("")
+	serviceAccountEmail, err := s.acf.FetchTargetPrincipal()
 	if err != nil {
 		return fmt.Errorf("groupsync: error retrieving service account email: %w", err)
 	}
 
-	l := clog.Logger.With(zap.String("service_account", serviceAccountEmail))
+	l := clog.Logger.With(zap.String("service_account", string(serviceAccountEmail)))
 	l.Info("starting sync", zap.Int("group_count", len(groups)))
 	var failed int
 	for g, apiUser := range groups {
@@ -95,21 +85,14 @@ func (s *Service) Sync(ctx context.Context) error {
 			)
 			defer span.End()
 
-			s.mtx.Lock()
-			ac, ok := s.adminClients[g.Domain]
-			if !ok {
-				ac, err = newAdminClient(context.Background(), apiUser, serviceAccountEmail, serviceAccountToken)
-				if err != nil {
-					s.mtx.Unlock()
-					s.reportError(l, err)
-					failed++
-					return
-				}
-				s.adminClients[g.Domain] = ac
+			ac, err := s.acf.NewAdminClient(context.Background(), serviceAccountEmail, apiUser, g.Domain)
+			if err != nil {
+				s.reportError(l, err)
+				failed++
+				return
 			}
-			s.mtx.Unlock()
 
-			group, err := ac.Groups.Get(g.Group).Context(ctx).Do()
+			group, err := ac.GetGroup(ctx, g.Group)
 			if err != nil {
 				s.reportError(l, err)
 				failed++
@@ -119,11 +102,7 @@ func (s *Service) Sync(ctx context.Context) error {
 			var members []*admin.Member
 			var pageToken string
 			for {
-				req := ac.Members.List(g.Group).Context(ctx)
-				if pageToken != "" {
-					req = req.PageToken(pageToken)
-				}
-				res, err := req.Do()
+				res, err := ac.GetGroupMembers(ctx, g.Group, pageToken)
 				if err != nil {
 					s.reportError(l, err)
 					failed++
@@ -170,18 +149,4 @@ func (s *Service) Sync(ctx context.Context) error {
 	}
 	l.Info("finished sync", zap.Int("group_count", len(groups)), zap.Int("group_sync_failures", failed))
 	return nil
-}
-
-func newAdminClient(ctx context.Context, subject, targetPrincipal string, rootToken oauth2.TokenSource) (*admin.Service, error) {
-	ts, err := impersonate.TokenSource(ctx, &impersonate.TokenConfig{
-		TokenSource:     rootToken,
-		TargetPrincipal: targetPrincipal,
-		Lifetime:        3600 * time.Second,
-		TargetScopes:    []string{"https://www.googleapis.com/auth/admin.directory.group.readonly"},
-		Subject:         subject,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return admin.NewService(ctx, option.WithTokenSource(ts))
 }

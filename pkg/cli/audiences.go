@@ -57,7 +57,7 @@ func (c *audiencesCreateCmd) Run(cfg *Config) error {
 
 	u, err := url.Parse(c.URL)
 	if err != nil {
-		return fmt.Errorf("error parsing audience URL: %s", err)
+		return fmt.Errorf("error parsing audience URL: %w", err)
 	}
 	if u.Scheme != "https" {
 		return fmt.Errorf("audience URL must be https://")
@@ -78,7 +78,7 @@ func (c *audiencesCreateCmd) Run(cfg *Config) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("error creating audience key: %s", err)
+		return fmt.Errorf("error creating audience key: %w", err)
 	}
 
 	return cfg.DB.CreateAudience(ctx, &hubauth.Audience{
@@ -117,7 +117,7 @@ func (c *audiencesKeyCmd) Run(cfg *Config) error {
 
 	u, err := url.Parse(c.URL)
 	if err != nil {
-		return fmt.Errorf("error parsing audience URL: %s", err)
+		return fmt.Errorf("error parsing audience URL: %w", err)
 	}
 	if u.Scheme != "https" {
 		return fmt.Errorf("audience URL must be https://")

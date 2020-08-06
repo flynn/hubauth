@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var Logger, _ = zap.Config{
+var cfg = zap.Config{
 	Level:    zap.NewAtomicLevelAt(zap.InfoLevel),
 	Encoding: "json",
 	EncoderConfig: zapcore.EncoderConfig{
@@ -26,7 +26,9 @@ var Logger, _ = zap.Config{
 	},
 	OutputPaths:      []string{"stdout"},
 	ErrorOutputPaths: []string{"stdout"},
-}.Build()
+}
+
+var Logger, _ = cfg.Build()
 
 func millisDurationEncoder(d time.Duration, enc zapcore.PrimitiveArrayEncoder) {
 	enc.AppendFloat64(float64(d) / float64(time.Millisecond))
@@ -131,11 +133,18 @@ func ErrorWithLogger(l *zap.Logger, err error, info *ErrInfo, fields ...zap.Fiel
 
 	frame := errsource.Source(err)
 	if frame == nil {
-		var f [3]uintptr
+		var f [4]uintptr
 		runtime.Callers(1, f[:])
 		frames := runtime.CallersFrames(f[:])
-		if _, ok := frames.Next(); ok {
-			f, _ := frames.Next()
+		if c, ok := frames.Next(); ok {
+			f, ok := frames.Next()
+			// search for the first frame called from another file than clog.go
+			// otherwise, calling ErrorWithLogger from another function in this file
+			// (such as Error) will result in the wrong location being reported
+			for ok && f.File == c.File {
+				f, ok = frames.Next()
+			}
+
 			frame = &f
 		}
 	}

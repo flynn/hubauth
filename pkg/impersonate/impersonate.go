@@ -8,6 +8,7 @@ package impersonate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -57,6 +58,36 @@ type TokenConfig struct {
 	Subject string
 }
 
+var (
+	ErrNilRootSource   = errors.New("impersonate: rootSource cannot be nil")
+	ErrInvalidLifetime = errors.New("impersonate: lifetime must be less than or equal to 3600 seconds")
+)
+
+const (
+	MaxTokenLifetime = 3600 * time.Second
+)
+
+type iamAPI interface {
+	GenerateAccessToken(ctx context.Context, name string, req *iamcredentials.GenerateAccessTokenRequest) (*iamcredentials.GenerateAccessTokenResponse, error)
+	SignJWT(ctx context.Context, name string, req *iamcredentials.SignJwtRequest) (*iamcredentials.SignJwtResponse, error)
+}
+
+type googleIAM struct {
+	api *iamcredentials.Service
+}
+
+func (g *googleIAM) GenerateAccessToken(ctx context.Context, name string, req *iamcredentials.GenerateAccessTokenRequest) (*iamcredentials.GenerateAccessTokenResponse, error) {
+	return g.api.Projects.ServiceAccounts.GenerateAccessToken(name, req).Context(ctx).Do()
+}
+
+func (g *googleIAM) SignJWT(ctx context.Context, name string, req *iamcredentials.SignJwtRequest) (*iamcredentials.SignJwtResponse, error) {
+	return g.api.Projects.ServiceAccounts.SignJwt(name, req).Context(ctx).Do()
+}
+
+type httpClient interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 // TokenSource returns a TokenSource issued to a user or service account to
 // impersonate another. The source project using must enable the
 // iamcredentials.googleapis.com API. Also, the target service account must
@@ -69,10 +100,10 @@ type TokenConfig struct {
 // https://cloud.google.com/iam/credentials/reference/rest/v1/projects.serviceAccounts/generateAccessToken
 func TokenSource(ctx context.Context, c *TokenConfig) (oauth2.TokenSource, error) {
 	if c.TokenSource == nil {
-		return nil, fmt.Errorf("impersonate: rootSource cannot be nil")
+		return nil, ErrNilRootSource
 	}
-	if c.Lifetime > (3600 * time.Second) {
-		return nil, fmt.Errorf("impersonate: lifetime must be less than or equal to 3600 seconds")
+	if c.Lifetime > MaxTokenLifetime {
+		return nil, ErrInvalidLifetime
 	}
 
 	hc := oauth2.NewClient(ctx, nil)
@@ -85,7 +116,7 @@ func TokenSource(ctx context.Context, c *TokenConfig) (oauth2.TokenSource, error
 
 	return &tokenSource{
 		httpClient:      hc,
-		iam:             iam,
+		iam:             &googleIAM{api: iam},
 		targetPrincipal: c.TargetPrincipal,
 		lifetime:        c.Lifetime,
 		delegates:       c.Delegates,
@@ -115,8 +146,8 @@ type tokenSource struct {
 	refreshMutex      sync.Mutex    // guards impersonatedToken; held while fetching or updating it.
 	impersonatedToken *oauth2.Token // Token representing the impersonated identity.
 
-	iam             *iamcredentials.Service
-	httpClient      *http.Client
+	iam             iamAPI
+	httpClient      httpClient
 	targetPrincipal string
 	lifetime        time.Duration
 	delegates       []string
@@ -140,7 +171,7 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 			Delegates: ts.delegates,
 			Scope:     ts.targetScopes,
 		}
-		at, err := ts.iam.Projects.ServiceAccounts.GenerateAccessToken(name, tokenRequest).Context(ts.ctx).Do()
+		at, err := ts.iam.GenerateAccessToken(ts.ctx, name, tokenRequest)
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error calling iamcredentials.GenerateAccessToken: %w", err)
 		}
@@ -175,7 +206,7 @@ func (ts *tokenSource) Token() (*oauth2.Token, error) {
 			Delegates: []string{name},
 			Payload:   string(b),
 		}
-		jwt, err := ts.iam.Projects.ServiceAccounts.SignJwt(name, signJwtRequest).Context(ts.ctx).Do()
+		jwt, err := ts.iam.SignJWT(ts.ctx, name, signJwtRequest)
 		if err != nil {
 			return nil, fmt.Errorf("impersonate: error retrieving short-lived iamcredentials token: %w", err)
 		}

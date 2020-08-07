@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	gdatastore "cloud.google.com/go/datastore"
@@ -12,6 +13,8 @@ import (
 	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	admin "google.golang.org/api/admin/directory/v1"
 )
 
@@ -41,6 +44,20 @@ func (m *mockAC) GetGroup(ctx context.Context, key string) (*admin.Group, error)
 func (m *mockAC) GetGroupMembers(ctx context.Context, key string, pageToken string) (*admin.Members, error) {
 	args := m.Called(ctx, key, pageToken)
 	return args.Get(0).(*admin.Members), args.Error(1)
+}
+
+type mockDB struct {
+	mock.Mock
+	hubauth.DataStore
+}
+
+func (m *mockDB) ListAudiences(ctx context.Context) ([]*hubauth.Audience, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*hubauth.Audience), args.Error(1)
+}
+func (m *mockDB) SetCachedGroup(ctx context.Context, group *hubauth.CachedGroup, members []*hubauth.CachedGroupMember) (*hubauth.SetCachedGroupResult, error) {
+	args := m.Called(ctx, group, members)
+	return args.Get(0).(*hubauth.SetCachedGroupResult), args.Error(1)
 }
 
 func newTestGroupSyncService(t *testing.T) *Service {
@@ -204,5 +221,133 @@ func assertCachedGroups(t *testing.T, db hubauth.DataStore, expectedGroups map[s
 		require.Equal(t, eg.Domain, cg.Domain)
 		require.Equal(t, eg.GroupID, cg.GroupID)
 		require.Equal(t, eg.Email, cg.Email)
+	}
+}
+
+func TestGroupSyncErrors(t *testing.T) {
+	repository := "repository"
+	revision := "revision"
+
+	expectedErr := errors.New("expected error")
+
+	audiences := []*hubauth.Audience{
+		{
+			Name: "audience1",
+			URL:  "audience1",
+			Policies: []*hubauth.GoogleUserPolicy{
+				{
+					APIUser: "apiUser",
+					Domain:  "domain1",
+					Groups:  []string{"group1"},
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		Desc string
+
+		ListAudiencesRes []*hubauth.Audience
+
+		ListAudiencesErr        error
+		FetchTargetPrincipalErr error
+		NewAdminClientErr       error
+		GetGroupErr             error
+		GetGroupMembersErr      error
+		SetCachedGroupErr       error
+
+		ExpectedErr       error
+		NeedsUnwrap       bool
+		ExpectedErrLogged bool
+		ExpectedLogMsg    string
+	}{
+		{
+			Desc:             "ListAudiences fails",
+			ListAudiencesRes: []*hubauth.Audience{},
+			ListAudiencesErr: expectedErr,
+			ExpectedErr:      expectedErr,
+			NeedsUnwrap:      true,
+		},
+		{
+			Desc:                    "FetchTargetPrincipal fails",
+			ListAudiencesRes:        audiences,
+			FetchTargetPrincipalErr: expectedErr,
+			ExpectedErr:             expectedErr,
+			NeedsUnwrap:             true,
+		},
+		{
+			Desc:              "NewAdminClient fails",
+			ListAudiencesRes:  audiences,
+			NewAdminClientErr: errors.New("admin client error"),
+			ExpectedErrLogged: true,
+			ExpectedLogMsg:    "admin client error",
+		},
+		{
+			Desc:              "GetGroup fails",
+			ListAudiencesRes:  audiences,
+			GetGroupErr:       errors.New("get group error"),
+			ExpectedErrLogged: true,
+			ExpectedLogMsg:    "get group error",
+		},
+		{
+			Desc:               "GetGroupMembers fails",
+			ListAudiencesRes:   audiences,
+			GetGroupMembersErr: errors.New("get group members error"),
+			ExpectedErrLogged:  true,
+			ExpectedLogMsg:     "get group members error",
+		},
+		{
+			Desc:              "SetCachedGroup fails",
+			ListAudiencesRes:  audiences,
+			SetCachedGroupErr: errors.New("set cached group error"),
+			ExpectedErrLogged: true,
+			ExpectedLogMsg:    "set cached group error",
+		},
+	}
+
+	for _, testCase := range testCases {
+		core, logs := observer.New(zap.ErrorLevel)
+
+		t.Run(testCase.Desc, func(t *testing.T) {
+			srv := &Service{
+				db:  &mockDB{},
+				acf: &mockACF{},
+				errInfo: &clog.ErrInfo{
+					Revision:   revision,
+					Repository: repository,
+				},
+				logger: zap.New(core),
+			}
+
+			mockAC := &mockAC{}
+			mockAC.On("GetGroup", mock.Anything, mock.Anything).Return(&admin.Group{}, testCase.GetGroupErr)
+			mockAC.On("GetGroupMembers", mock.Anything, mock.Anything, mock.Anything).Return(&admin.Members{}, testCase.GetGroupMembersErr)
+
+			srv.acf.(*mockACF).On("FetchTargetPrincipal").Return(TargetPrincipal(""), testCase.FetchTargetPrincipalErr)
+			srv.acf.(*mockACF).On("NewAdminClient", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockAC, testCase.NewAdminClientErr)
+
+			srv.db.(*mockDB).On("ListAudiences", mock.Anything).Return(testCase.ListAudiencesRes, testCase.ListAudiencesErr)
+			srv.db.(*mockDB).On("SetCachedGroup", mock.Anything, mock.Anything, mock.Anything).Return(&hubauth.SetCachedGroupResult{}, testCase.SetCachedGroupErr)
+
+			syncErr := srv.Sync(context.Background())
+
+			if !testCase.ExpectedErrLogged {
+				if testCase.NeedsUnwrap {
+					syncErr = errors.Unwrap(syncErr)
+				}
+
+				if testCase.ExpectedErr != nil {
+					require.Equal(t, testCase.ExpectedErr, syncErr)
+				} else {
+					require.Error(t, syncErr)
+				}
+			} else {
+				errlogs := logs.FilterMessage(testCase.ExpectedLogMsg)
+				require.Equal(t, 1, errlogs.Len())
+
+				entry := errlogs.All()[0]
+				require.Equal(t, zap.ErrorLevel, entry.Level)
+			}
+		})
 	}
 }

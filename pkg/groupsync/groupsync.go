@@ -16,6 +16,7 @@ func New(db hubauth.DataStore, errInfo *clog.ErrInfo) *Service {
 		db:      db,
 		acf:     newAdminClientFactory(),
 		errInfo: errInfo,
+		logger:  clog.Logger,
 	}
 }
 
@@ -23,6 +24,7 @@ type Service struct {
 	db  hubauth.DataStore
 	acf adminClientFactory
 
+	logger  *zap.Logger
 	errInfo *clog.ErrInfo
 }
 
@@ -44,7 +46,7 @@ func (s *Service) Sync(ctx context.Context) error {
 
 	audiences, err := s.db.ListAudiences(ctx)
 	if err != nil {
-		return fmt.Errorf("groupsync: error listing clients: %w", err)
+		return fmt.Errorf("groupsync: error listing audiences: %w", err)
 	}
 
 	groups := make(map[domainGroup]string)
@@ -68,7 +70,7 @@ func (s *Service) Sync(ctx context.Context) error {
 		return fmt.Errorf("groupsync: error retrieving service account email: %w", err)
 	}
 
-	l := clog.Logger.With(zap.String("service_account", string(serviceAccountEmail)))
+	l := s.logger.With(zap.String("service_account", string(serviceAccountEmail)))
 	l.Info("starting sync", zap.Int("group_count", len(groups)))
 	var failed int
 	for g, apiUser := range groups {

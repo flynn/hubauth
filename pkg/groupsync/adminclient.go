@@ -36,7 +36,8 @@ var _ adminClientFactory = (*googleAdminClientFactory)(nil)
 
 func newAdminClientFactory() adminClientFactory {
 	return &googleAdminClientFactory{
-		tokenSource: google.ComputeTokenSource("", "https://www.googleapis.com/auth/iam"),
+		tokenSource:  google.ComputeTokenSource("", "https://www.googleapis.com/auth/iam"),
+		adminClients: make(map[string]adminClient),
 	}
 }
 

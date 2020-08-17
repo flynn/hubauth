@@ -5,7 +5,7 @@ go 1.14
 require (
 	cloud.google.com/go v0.63.0
 	cloud.google.com/go/datastore v1.2.0
-	contrib.go.opencensus.io/exporter/stackdriver v0.13.2
+	contrib.go.opencensus.io/exporter/stackdriver v0.13.3
 	github.com/alecthomas/kong v0.2.11
 	github.com/aws/aws-sdk-go v1.33.8 // indirect
 	github.com/golang/protobuf v1.4.2

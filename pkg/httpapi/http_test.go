@@ -460,6 +460,7 @@ func TestTokenAuthorizationCode(t *testing.T) {
 		Nonce:                 "nonce",
 		Audience:              exchangeReq.Audience,
 		RefreshTokenExpiresIn: 120,
+		RefreshTokenIssueTime: now,
 		RedirectURI:           exchangeReq.RedirectURI,
 	}
 
@@ -492,6 +493,11 @@ func TestTokenAuthorizationCode(t *testing.T) {
 	require.NoError(t, json.NewDecoder(r.Body).Decode(got))
 	r.Body.Close()
 
+	// require.Equal doesn't work with timestamps that have been deserialized
+	require.WithinDuration(t, want.RefreshTokenIssueTime, got.RefreshTokenIssueTime, 0)
+	want.RefreshTokenIssueTime = time.Time{}
+	got.RefreshTokenIssueTime = time.Time{}
+
 	require.Equal(t, &want, got)
 }
 
@@ -520,6 +526,7 @@ func TestTokenRefreshToken(t *testing.T) {
 		Nonce:                 "nonce",
 		Audience:              refreshReq.Audience,
 		RefreshTokenExpiresIn: 120,
+		RefreshTokenIssueTime: now,
 		RedirectURI:           redirectURLFull,
 	}
 
@@ -549,6 +556,11 @@ func TestTokenRefreshToken(t *testing.T) {
 	got := new(hubauth.AccessToken)
 	require.NoError(t, json.NewDecoder(r.Body).Decode(got))
 	r.Body.Close()
+
+	// require.Equal doesn't work with timestamps that have been deserialized
+	require.WithinDuration(t, want.RefreshTokenIssueTime, got.RefreshTokenIssueTime, 0)
+	want.RefreshTokenIssueTime = time.Time{}
+	got.RefreshTokenIssueTime = time.Time{}
 
 	require.Equal(t, &want, got)
 }

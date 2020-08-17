@@ -345,6 +345,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		RedirectURI:           req.RedirectURI,
 		Audience:              req.Audience,
 		RefreshTokenExpiresIn: int(client.RefreshTokenExpiry / time.Second),
+		RefreshTokenIssueTime: now,
 	}
 	if res.AccessToken == "" {
 		// if no audience was provided, provide a refresh token that can be used to to access /audiences
@@ -417,6 +418,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		RedirectURI:           newToken.RedirectURI,
 		Audience:              req.Audience,
 		RefreshTokenExpiresIn: int(time.Until(newToken.ExpiryTime) / time.Second),
+		RefreshTokenIssueTime: now,
 	}
 	if res.AccessToken == "" {
 		// if no audience was provided, provide a refresh token that can be used to access /audiences

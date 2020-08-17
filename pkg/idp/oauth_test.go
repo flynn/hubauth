@@ -580,6 +580,7 @@ func TestExchangeCode(t *testing.T) {
 	refreshToken := "refreshToken"
 	accessToken := "accessToken"
 	refreshTokenExpiry := time.Second * 42
+	now := time.Now()
 
 	testCases := []struct {
 		Desc        string
@@ -597,6 +598,7 @@ func TestExchangeCode(t *testing.T) {
 				Nonce:                 nonce,
 				Audience:              audienceURL,
 				RefreshTokenExpiresIn: int(refreshTokenExpiry / time.Second),
+				RefreshTokenIssueTime: now,
 				RedirectURI:           redirectURI,
 			},
 		},
@@ -611,6 +613,7 @@ func TestExchangeCode(t *testing.T) {
 				Nonce:                 nonce,
 				Audience:              "",
 				RefreshTokenExpiresIn: int(refreshTokenExpiry / time.Second),
+				RefreshTokenIssueTime: now,
 				RedirectURI:           redirectURI,
 			},
 		},
@@ -622,7 +625,6 @@ func TestExchangeCode(t *testing.T) {
 			idpService := newTestIdPService(t)
 
 			ctx := hubauth.InitClientInfo(context.Background())
-			now := time.Now()
 
 			expireTime, _ := ptypes.TimestampProto(now.Add(codeExpiry))
 			signedCode, err := hmacpb.SignMarshal(idpService.codeKey, &pb.Code{
@@ -859,6 +861,7 @@ func TestRefreshToken(t *testing.T) {
 				ExpiresIn:             int(accessTokenDuration / time.Second),
 				Audience:              audienceURL,
 				RefreshTokenExpiresIn: int(time.Until(issueTime.Add(refreshTokenExpire)) / time.Second),
+				RefreshTokenIssueTime: now,
 				RedirectURI:           redirectURI,
 			},
 		},
@@ -872,6 +875,7 @@ func TestRefreshToken(t *testing.T) {
 				ExpiresIn:             int(time.Until(issueTime.Add(refreshTokenExpire)) / time.Second),
 				Audience:              "",
 				RefreshTokenExpiresIn: int(time.Until(issueTime.Add(refreshTokenExpire)) / time.Second),
+				RefreshTokenIssueTime: now,
 				RedirectURI:           redirectURI,
 			},
 		},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"time"
 )
 
 var ErrUnauthorizedUser = errors.New("hubauth: unauthorized user")
@@ -52,7 +53,8 @@ type AccessToken struct {
 	Nonce        string `json:"nonce,omitempty"`
 	Audience     string `json:"audience,omitempty"`
 
-	RefreshTokenExpiresIn int `json:"refresh_token_expires_in"`
+	RefreshTokenExpiresIn int       `json:"refresh_token_expires_in"`
+	RefreshTokenIssueTime time.Time `json:"refresh_token_issue_time"`
 
 	// used by HTTP layer to set Access-Control-Allow-Origin
 	RedirectURI string `json:"-"`

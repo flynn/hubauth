@@ -27,9 +27,10 @@ docker run --rm -v `pwd`:/app hubauth-test
 Create docker tag for gcr.io and push the image:
 
 ```
-docker tag hubauth-test:latest us.gcr.io/<PROJECT_ID>/hubauth-test:latest
-gcloud auth configure-docker
-docker push us.gcr.io/<PROJECT_ID/hubauth-test
+docker build -t us.gcr.io/<PROJECT_ID>/hubauth-dev:latest -f build.Dockerfile .
+docker push us.gcr.io/<PROJECT_ID/hubauth-dev:latest
+
+# if not authorized, you may need to run `gcloud auth configure-docker`
 ```
 
 ### In Security > Cryptographic Keys

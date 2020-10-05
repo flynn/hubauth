@@ -89,14 +89,14 @@ func (s *Service) Sync(ctx context.Context) error {
 
 			ac, err := s.acf.NewAdminClient(context.Background(), serviceAccountEmail, apiUser, g.Domain)
 			if err != nil {
-				s.reportError(l, err)
+				s.reportError(l, fmt.Errorf("failed to create admin client: %v", err))
 				failed++
 				return
 			}
 
 			group, err := ac.GetGroup(ctx, g.Group)
 			if err != nil {
-				s.reportError(l, err)
+				s.reportError(l, fmt.Errorf("failed to get group: %v", err))
 				failed++
 				return
 			}
@@ -106,7 +106,7 @@ func (s *Service) Sync(ctx context.Context) error {
 			for {
 				res, err := ac.GetGroupMembers(ctx, g.Group, pageToken)
 				if err != nil {
-					s.reportError(l, err)
+					s.reportError(l, fmt.Errorf("failed to get group members: %v", err))
 					failed++
 					return
 				}
@@ -136,7 +136,7 @@ func (s *Service) Sync(ctx context.Context) error {
 				Email:   group.Email,
 			}, cachedMembers)
 			if err != nil {
-				s.reportError(l, err)
+				s.reportError(l, fmt.Errorf("failed to set cached group: %v", err))
 				failed++
 				return
 			}

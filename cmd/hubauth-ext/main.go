@@ -63,7 +63,7 @@ func main() {
 		}
 		result, err := secretsClient.AccessSecretVersion(ctx, req)
 		if err != nil {
-			log.Fatalf("failed to access secret version: %s", err)
+			log.Fatalf("failed to access secret version for %s: %s", name, err)
 		}
 		return result.Payload.String()
 	}

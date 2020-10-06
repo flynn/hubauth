@@ -9,6 +9,7 @@ import (
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/hmacpb"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"github.com/flynn/hubauth/pkg/idp/token"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/signpb"
 	"github.com/golang/protobuf/ptypes"
@@ -19,7 +20,8 @@ import (
 )
 
 type steps struct {
-	db hubauth.DataStore
+	db      hubauth.DataStore
+	builder token.AccessTokenBuilder
 }
 
 var _ idpSteps = (*steps)(nil)
@@ -349,37 +351,21 @@ func (s *steps) VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken
 	return nil
 }
 
-type accessTokenData struct {
-	clientID  string
-	userID    string
-	userEmail string
-}
-
-func (s *steps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData, now time.Time) (token string, err error) {
+func (s *steps) SignAccessToken(ctx context.Context, audience string, t *token.AccessTokenData, now time.Time) (token string, err error) {
 	ctx, span := trace.StartSpan(ctx, "idp.SignAccessToken")
 	span.AddAttributes(
-		trace.StringAttribute("client_id", t.clientID),
-		trace.StringAttribute("user_id", t.userID),
-		trace.StringAttribute("user_email", t.userEmail),
+		trace.StringAttribute("client_id", t.ClientID),
+		trace.StringAttribute("user_id", t.UserID),
+		trace.StringAttribute("user_email", t.UserEmail),
 	)
 	defer span.End()
 
-	exp, _ := ptypes.TimestampProto(now.Add(accessTokenDuration))
-	iss, _ := ptypes.TimestampProto(now)
-	msg := &pb.AccessToken{
-		ClientId:   t.clientID,
-		UserId:     t.userID,
-		UserEmail:  t.userEmail,
-		IssueTime:  iss,
-		ExpireTime: exp,
-	}
-	tokenBytes, err := signpb.SignMarshal(ctx, signKey, msg)
+	tokenBytes, err := s.builder.Build(ctx, audience, t, now, accessTokenDuration)
 	if err != nil {
-		return "", fmt.Errorf("idp: error signing access token: %w", err)
+		return "", fmt.Errorf("idp: error building access token: %w", err)
 	}
-	idBytes := sha256.Sum256(tokenBytes)
 
-	token = base64.URLEncoding.EncodeToString(tokenBytes)
+	idBytes := sha256.Sum256(tokenBytes)
 	accessTokenID := base64Encode(idBytes[:])
 	span.AddAttributes(trace.StringAttribute("access_token_id", accessTokenID))
 
@@ -387,5 +373,6 @@ func (s *steps) SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, 
 		zap.String("issued_access_token_id", accessTokenID),
 		zap.Duration("issued_access_token_expires_in", accessTokenDuration),
 	)
-	return token, nil
+
+	return base64.URLEncoding.EncodeToString(tokenBytes), nil
 }

@@ -12,21 +12,39 @@ import (
 	"github.com/flynn/hubauth/pkg/datastore"
 	"github.com/flynn/hubauth/pkg/hmacpb"
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"github.com/flynn/hubauth/pkg/idp/token"
 	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/kmssign/kmssim"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/signpb"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
+
+const (
+	testAudienceName = "audienceXYZ"
+)
+
+type mockAccessTokenBuilder struct {
+	mock.Mock
+}
+
+var _ token.AccessTokenBuilder = (*mockAccessTokenBuilder)(nil)
+
+func (m *mockAccessTokenBuilder) Build(ctx context.Context, audience string, t *token.AccessTokenData, now time.Time, duration time.Duration) ([]byte, error) {
+	args := m.Called(ctx, audience, t, now, duration)
+	return args.Get(0).([]byte), args.Error(1)
+}
 
 func newTestSteps(t *testing.T) *steps {
 	dsc, err := gdatastore.NewClient(context.Background(), "test")
 	require.NoError(t, err)
 
 	return &steps{
-		db: datastore.New(dsc),
+		db:      datastore.New(dsc),
+		builder: &mockAccessTokenBuilder{},
 	}
 }
 
@@ -754,36 +772,23 @@ func TestVerifyRefreshTokenErrors(t *testing.T) {
 func TestSignAccessToken(t *testing.T) {
 	s := newTestSteps(t)
 
-	signKeyName := "refreshKey"
-	kms := kmssim.NewClient([]string{signKeyName})
-	signKey, err := kmssign.NewKey(context.Background(), kms, signKeyName)
-	require.NoError(t, err)
-
 	now := time.Now()
-	data := &accessTokenData{
-		clientID:  "clientID",
-		userID:    "userID",
-		userEmail: "userEmail",
+	data := &token.AccessTokenData{
+		ClientID:  "clientID",
+		UserID:    "userID",
+		UserEmail: "userEmail",
 	}
 
-	accessToken, err := s.SignAccessToken(context.Background(), signKey, data, now)
+	expectedAccessToken := []byte("expected-access-token")
+
+	s.builder.(*mockAccessTokenBuilder).On("Build", mock.Anything, testAudienceName, data, now, accessTokenDuration).Return(expectedAccessToken, nil)
+
+	accessToken, err := s.SignAccessToken(context.Background(), testAudienceName, data, now)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, accessToken)
 
-	got := new(pb.AccessToken)
-
 	accessTokenBytes, err := base64Decode(accessToken)
 	require.NoError(t, err)
-
-	require.NoError(t, signpb.VerifyUnmarshal(signKey, accessTokenBytes, got))
-	require.Equal(t, data.clientID, got.ClientId)
-	require.Equal(t, data.userID, got.UserId)
-	require.Equal(t, data.userEmail, got.UserEmail)
-
-	nowPb, _ := ptypes.TimestampProto(now)
-	require.Equal(t, nowPb, got.IssueTime)
-
-	expirePb, _ := ptypes.TimestampProto(now.Add(accessTokenDuration))
-	require.Equal(t, expirePb, got.ExpireTime)
+	require.Equal(t, expectedAccessToken, accessTokenBytes)
 }

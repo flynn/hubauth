@@ -2,16 +2,14 @@ package idp
 
 import (
 	"context"
-	"crypto"
 	"encoding/base64"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/flynn/hubauth/pkg/clog"
 	"github.com/flynn/hubauth/pkg/hmacpb"
 	"github.com/flynn/hubauth/pkg/hubauth"
-	"github.com/flynn/hubauth/pkg/kmssign"
+	"github.com/flynn/hubauth/pkg/idp/token"
 	"github.com/flynn/hubauth/pkg/pb"
 	"github.com/flynn/hubauth/pkg/rp"
 	"github.com/flynn/hubauth/pkg/signpb"
@@ -22,21 +20,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type AudienceKeyNamer func(audience string) string
-
 const oobRedirectURI = "urn:ietf:wg:oauth:2.0:oob"
 const codeExpiry = 30 * time.Second
 const accessTokenDuration = 5 * time.Minute
-
-func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) string {
-	return func(aud string) string {
-		u, err := url.Parse(aud)
-		if err != nil {
-			return ""
-		}
-		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1))
-	}
-}
 
 type clock interface {
 	Now() time.Time
@@ -61,17 +47,15 @@ type idpSteps interface {
 	SignRefreshToken(ctx context.Context, signKey signpb.PrivateKey, t *signedRefreshTokenData) (string, error)
 	RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error)
 	VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken, now time.Time) error
-	SignAccessToken(ctx context.Context, signKey signpb.PrivateKey, t *accessTokenData, now time.Time) (string, error)
+	SignAccessToken(ctx context.Context, audience string, t *token.AccessTokenData, now time.Time) (string, error)
 }
 
 type idpService struct {
-	db  hubauth.DataStore
-	rp  rp.AuthService
-	kms kmssign.KMSClient
+	db hubauth.DataStore
+	rp rp.AuthService
 
-	codeKey     hmacpb.Key
-	refreshKey  signpb.Key
-	audienceKey AudienceKeyNamer
+	codeKey    hmacpb.Key
+	refreshKey signpb.Key
 
 	steps idpSteps
 	clock clock
@@ -79,16 +63,15 @@ type idpService struct {
 
 var _ hubauth.IdPService = (*idpService)(nil)
 
-func New(db hubauth.DataStore, rp rp.AuthService, kms kmssign.KMSClient, codeKey hmacpb.Key, refreshKey signpb.Key, audienceKey AudienceKeyNamer) hubauth.IdPService {
+func New(db hubauth.DataStore, rp rp.AuthService, codeKey hmacpb.Key, refreshKey signpb.Key, tokenBuilder token.AccessTokenBuilder) hubauth.IdPService {
 	return &idpService{
-		db:          db,
-		rp:          rp,
-		kms:         kms,
-		codeKey:     codeKey,
-		refreshKey:  refreshKey,
-		audienceKey: audienceKey,
+		db:         db,
+		rp:         rp,
+		codeKey:    codeKey,
+		refreshKey: refreshKey,
 		steps: &steps{
-			db: db,
+			db:      db,
+			builder: tokenBuilder,
 		},
 		clock: clockImpl{},
 	}
@@ -325,11 +308,11 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		if req.Audience == "" {
 			return nil
 		}
-		signKey := kmssign.NewPrivateKey(s.kms, s.audienceKey(req.Audience), crypto.SHA256)
-		accessToken, err = s.steps.SignAccessToken(ctx, signKey, &accessTokenData{
-			clientID:  req.ClientID,
-			userID:    codeInfo.UserId,
-			userEmail: codeInfo.UserEmail,
+
+		accessToken, err = s.steps.SignAccessToken(ctx, req.Audience, &token.AccessTokenData{
+			ClientID:  req.ClientID,
+			UserID:    codeInfo.UserId,
+			UserEmail: codeInfo.UserEmail,
 		}, now)
 		return err
 	})
@@ -399,11 +382,10 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		if req.Audience == "" {
 			return nil
 		}
-		signKey := kmssign.NewPrivateKey(s.kms, s.audienceKey(req.Audience), crypto.SHA256)
-		accessToken, err = s.steps.SignAccessToken(ctx, signKey, &accessTokenData{
-			clientID:  req.ClientID,
-			userID:    oldToken.UserID,
-			userEmail: oldToken.UserEmail,
+		accessToken, err = s.steps.SignAccessToken(ctx, req.Audience, &token.AccessTokenData{
+			ClientID:  req.ClientID,
+			UserID:    oldToken.UserID,
+			UserEmail: oldToken.UserEmail,
 		}, now)
 		return err
 	})

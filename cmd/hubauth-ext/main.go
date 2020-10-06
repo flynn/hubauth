@@ -15,6 +15,7 @@ import (
 	"github.com/flynn/hubauth/pkg/datastore"
 	"github.com/flynn/hubauth/pkg/httpapi"
 	"github.com/flynn/hubauth/pkg/idp"
+	"github.com/flynn/hubauth/pkg/idp/token"
 	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/rp/google"
 	"go.opencensus.io/plugin/ochttp"
@@ -77,10 +78,12 @@ func main() {
 					os.Getenv("RP_GOOGLE_CLIENT_SECRET"),
 					os.Getenv("BASE_URL")+"/rp/google",
 				),
-				kmsClient,
 				[]byte(secret("CODE_KEY_SECRET")),
 				refreshKey,
-				idp.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
+				token.NewSignedPBBuilder(
+					kmsClient,
+					kmssign.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
+				),
 			),
 			CookieKey:  []byte(secret("COOKIE_KEY_SECRET")),
 			ProjectID:  os.Getenv("PROJECT_ID"),

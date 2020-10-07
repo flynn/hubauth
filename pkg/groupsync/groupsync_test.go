@@ -280,28 +280,28 @@ func TestGroupSyncErrors(t *testing.T) {
 			ListAudiencesRes:  audiences,
 			NewAdminClientErr: errors.New("admin client error"),
 			ExpectedErrLogged: true,
-			ExpectedLogMsg:    "admin client error",
+			ExpectedLogMsg:    "failed to create admin client: admin client error",
 		},
 		{
 			Desc:              "GetGroup fails",
 			ListAudiencesRes:  audiences,
 			GetGroupErr:       errors.New("get group error"),
 			ExpectedErrLogged: true,
-			ExpectedLogMsg:    "get group error",
+			ExpectedLogMsg:    "failed to get group: get group error",
 		},
 		{
 			Desc:               "GetGroupMembers fails",
 			ListAudiencesRes:   audiences,
 			GetGroupMembersErr: errors.New("get group members error"),
 			ExpectedErrLogged:  true,
-			ExpectedLogMsg:     "get group members error",
+			ExpectedLogMsg:     "failed to get group members: get group members error",
 		},
 		{
 			Desc:              "SetCachedGroup fails",
 			ListAudiencesRes:  audiences,
 			SetCachedGroupErr: errors.New("set cached group error"),
 			ExpectedErrLogged: true,
-			ExpectedLogMsg:    "set cached group error",
+			ExpectedLogMsg:    "failed to set cached group: set cached group error",
 		},
 	}
 

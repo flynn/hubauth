@@ -9,6 +9,7 @@ require (
 	github.com/alecthomas/kong v0.2.11
 	github.com/aws/aws-sdk-go v1.34.6 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
+	github.com/flynn/biscuit-go v0.0.0-20200907174027-193b7bdbbdca
 	github.com/golang/protobuf v1.4.2
 	github.com/googleapis/gax-go/v2 v2.0.5
 	github.com/jedib0t/go-pretty/v6 v6.0.5

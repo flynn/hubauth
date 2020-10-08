@@ -14,7 +14,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.0.5
 	github.com/stretchr/testify v1.6.1
 	go.opencensus.io v0.22.4
-	go.uber.org/zap v1.15.0
+	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
 	golang.org/x/exp/errors v0.0.0-20200513190911-00229845015e
 	golang.org/x/net v0.0.0-20200927032502-5d4f70055728

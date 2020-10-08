@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	cloud.google.com/go v0.68.0
-	cloud.google.com/go/datastore v1.2.0
+	cloud.google.com/go/datastore v1.3.0
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.4
 	github.com/alecthomas/kong v0.2.11
 	github.com/aws/aws-sdk-go v1.34.6 // indirect

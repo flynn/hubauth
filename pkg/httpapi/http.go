@@ -34,6 +34,7 @@ func (clockImpl) Now() time.Time {
 type Config struct {
 	IdP        hubauth.IdPService
 	CookieKey  hmacpb.Key
+	PublicKey  []byte
 	ProjectID  string
 	Repository string
 	Revision   string
@@ -87,6 +88,8 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Access-Control-Allow-Methods", "GET")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 		w.WriteHeader(http.StatusOK)
+	case req.Method == "GET" && req.URL.Path == "/public-key":
+		a.PublicKey(w, req)
 	case req.Method == "GET" && req.URL.Path == "/":
 		http.Redirect(w, req, "https://flynn.io/", http.StatusFound)
 	case req.Method == "GET" && req.URL.Path == "/privacy":
@@ -392,6 +395,28 @@ func (a *api) Audiences(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	json.NewEncoder(w).Encode(res)
+}
+
+func (a *api) PublicKey(w http.ResponseWriter, req *http.Request) {
+	if len(a.Config.PublicKey) == 0 {
+		a.handleErr(w, req, &hubauth.OAuthError{
+			Code:        "unsupported_request",
+			Description: "no public key configured",
+		})
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+
+	type key struct {
+		PublicKey string `json:"public-key"`
+	}
+	json.NewEncoder(w).Encode(&key{
+		PublicKey: base64.StdEncoding.EncodeToString(a.Config.PublicKey),
+	})
 }
 
 func (a *api) handleErr(w http.ResponseWriter, req *http.Request, err error) {

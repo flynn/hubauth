@@ -66,12 +66,16 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to access secret version for %s: %s", name, err)
 		}
-		return result.Payload.String()
+
+		// Payload.String() would return a json encoded version of the secret: {"data": "..."}
+		// the actual secret is in Data.
+		return string(result.Payload.Data)
 	}
 
 	audienceKeyNamer := kmssign.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING"))
 
 	var accessTokenBuilder token.AccessTokenBuilder
+	var rootPubKey []byte
 	tokenType, exists := os.LookupEnv("TOKEN_TYPE")
 	if !exists {
 		tokenType = "Bearer"
@@ -85,6 +89,7 @@ func main() {
 			log.Fatalf("failed to initialize biscuit keypair: %v", err)
 		}
 
+		rootPubKey = biscuitKey.Public().Bytes()
 		accessTokenBuilder = token.NewBiscuitBuilder(kmsClient, audienceKeyNamer, biscuitKey)
 	default:
 		log.Fatalf("invalid TOKEN_TYPE, must be one of: Bearer, Biscuit")
@@ -107,6 +112,7 @@ func main() {
 			ProjectID:  os.Getenv("PROJECT_ID"),
 			Repository: fmt.Sprintf("https://source.developers.google.com/p/%s/r/%s", os.Getenv("PROJECT_ID"), os.Getenv("BUILD_REPO")),
 			Revision:   os.Getenv("BUILD_REV"),
+			PublicKey:  rootPubKey,
 		}),
 	},
 	))

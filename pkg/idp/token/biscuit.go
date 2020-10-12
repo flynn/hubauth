@@ -39,3 +39,7 @@ func (b *biscuitBuilder) Build(ctx context.Context, audience string, t *AccessTo
 
 	return biscuit.GenerateSignable(b.rootKeyPair, audience, audienceKey, t.UserPublicKey, t.ExpireTime, meta)
 }
+
+func (b *biscuitBuilder) TokenType() string {
+	return "Biscuit"
+}

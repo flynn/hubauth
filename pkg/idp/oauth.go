@@ -47,7 +47,7 @@ type idpSteps interface {
 	SignRefreshToken(ctx context.Context, signKey signpb.PrivateKey, t *signedRefreshTokenData) (string, error)
 	RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error)
 	VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken, now time.Time) error
-	BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (string, error)
+	BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (string, string, error)
 }
 
 type idpService struct {
@@ -304,6 +304,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 	})
 
 	var accessToken string
+	var tokenType string
 	g.Go(func() (err error) {
 		if req.Audience == "" {
 			return nil
@@ -318,7 +319,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			}
 		}
 
-		accessToken, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
+		accessToken, tokenType, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
 			ClientID:      req.ClientID,
 			UserID:        codeInfo.UserId,
 			UserEmail:     codeInfo.UserEmail,
@@ -348,7 +349,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		res.AccessToken = res.RefreshToken
 		res.ExpiresIn = res.RefreshTokenExpiresIn
 	} else {
-		res.TokenType = "Bearer"
+		res.TokenType = tokenType
 		res.ExpiresIn = int(accessTokenDuration / time.Second)
 	}
 	return res, nil
@@ -390,6 +391,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 	})
 
 	var accessToken string
+	var tokenType string
 	g.Go(func() (err error) {
 		if req.Audience == "" {
 			return nil
@@ -404,7 +406,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			}
 		}
 
-		accessToken, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
+		accessToken, tokenType, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
 			ClientID:      req.ClientID,
 			UserID:        oldToken.UserID,
 			UserEmail:     oldToken.UserEmail,
@@ -433,7 +435,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		res.AccessToken = res.RefreshToken
 		res.ExpiresIn = res.RefreshTokenExpiresIn
 	} else {
-		res.TokenType = "Bearer"
+		res.TokenType = tokenType
 		res.ExpiresIn = int(accessTokenDuration / time.Second)
 	}
 	return res, nil

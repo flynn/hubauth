@@ -351,7 +351,7 @@ func (s *steps) VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken
 	return nil
 }
 
-func (s *steps) BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (token string, err error) {
+func (s *steps) BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (token string, tokenType string, err error) {
 	ctx, span := trace.StartSpan(ctx, "idp.BuildAccessToken")
 	span.AddAttributes(
 		trace.StringAttribute("client_id", t.ClientID),
@@ -362,7 +362,7 @@ func (s *steps) BuildAccessToken(ctx context.Context, audience string, t *token.
 
 	tokenBytes, err := s.builder.Build(ctx, audience, t)
 	if err != nil {
-		return "", fmt.Errorf("idp: error building access token: %w", err)
+		return "", "", fmt.Errorf("idp: error building access token: %w", err)
 	}
 
 	idBytes := sha256.Sum256(tokenBytes)
@@ -374,5 +374,5 @@ func (s *steps) BuildAccessToken(ctx context.Context, audience string, t *token.
 		zap.Duration("issued_access_token_expires_in", accessTokenDuration),
 	)
 
-	return base64.URLEncoding.EncodeToString(tokenBytes), nil
+	return base64.URLEncoding.EncodeToString(tokenBytes), s.builder.TokenType(), nil
 }

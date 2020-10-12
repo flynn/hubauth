@@ -38,6 +38,11 @@ func (m *mockAccessTokenBuilder) Build(ctx context.Context, audience string, t *
 	return args.Get(0).([]byte), args.Error(1)
 }
 
+func (m *mockAccessTokenBuilder) TokenType() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 func newTestSteps(t *testing.T) *steps {
 	dsc, err := gdatastore.NewClient(context.Background(), "test")
 	require.NoError(t, err)
@@ -782,13 +787,16 @@ func TestBuildAccessToken(t *testing.T) {
 	}
 
 	expectedAccessToken := []byte("expected-access-token")
+	expectedTokenType := "MockBearer"
 
 	s.builder.(*mockAccessTokenBuilder).On("Build", mock.Anything, testAudienceName, data).Return(expectedAccessToken, nil)
+	s.builder.(*mockAccessTokenBuilder).On("TokenType").Return(expectedTokenType)
 
-	accessToken, err := s.BuildAccessToken(context.Background(), testAudienceName, data)
+	accessToken, tokenType, err := s.BuildAccessToken(context.Background(), testAudienceName, data)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, accessToken)
+	require.Equal(t, expectedTokenType, tokenType)
 
 	accessTokenBytes, err := base64Decode(accessToken)
 	require.NoError(t, err)

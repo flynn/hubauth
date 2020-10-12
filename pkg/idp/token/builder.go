@@ -6,11 +6,14 @@ import (
 )
 
 type AccessTokenData struct {
-	ClientID  string
-	UserID    string
-	UserEmail string
+	ClientID      string
+	UserID        string
+	UserEmail     string
+	UserPublicKey []byte
+	IssueTime     time.Time
+	ExpireTime    time.Time
 }
 
 type AccessTokenBuilder interface {
-	Build(ctx context.Context, audience string, t *AccessTokenData, now time.Time, duration time.Duration) ([]byte, error)
+	Build(ctx context.Context, audience string, t *AccessTokenData) ([]byte, error)
 }

@@ -47,7 +47,7 @@ type idpSteps interface {
 	SignRefreshToken(ctx context.Context, signKey signpb.PrivateKey, t *signedRefreshTokenData) (string, error)
 	RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error)
 	VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken, now time.Time) error
-	SignAccessToken(ctx context.Context, audience string, t *token.AccessTokenData, now time.Time) (string, error)
+	BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (string, error)
 }
 
 type idpService struct {
@@ -309,11 +309,23 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			return nil
 		}
 
-		accessToken, err = s.steps.SignAccessToken(ctx, req.Audience, &token.AccessTokenData{
-			ClientID:  req.ClientID,
-			UserID:    codeInfo.UserId,
-			UserEmail: codeInfo.UserEmail,
-		}, now)
+		var userPublicKey []byte
+		if len(req.UserPublicKey) > 0 {
+			var err error
+			userPublicKey, err = base64Decode(req.UserPublicKey)
+			if err != nil {
+				return fmt.Errorf("idp: invalid public key: %v", err)
+			}
+		}
+
+		accessToken, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
+			ClientID:      req.ClientID,
+			UserID:        codeInfo.UserId,
+			UserEmail:     codeInfo.UserEmail,
+			UserPublicKey: userPublicKey,
+			IssueTime:     now,
+			ExpireTime:    now.Add(accessTokenDuration),
+		})
 		return err
 	})
 
@@ -382,11 +394,24 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		if req.Audience == "" {
 			return nil
 		}
-		accessToken, err = s.steps.SignAccessToken(ctx, req.Audience, &token.AccessTokenData{
-			ClientID:  req.ClientID,
-			UserID:    oldToken.UserID,
-			UserEmail: oldToken.UserEmail,
-		}, now)
+
+		var userPublicKey []byte
+		if len(req.UserPublicKey) > 0 {
+			var err error
+			userPublicKey, err = base64Decode(req.UserPublicKey)
+			if err != nil {
+				return fmt.Errorf("idp: invalid public key: %v", err)
+			}
+		}
+
+		accessToken, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
+			ClientID:      req.ClientID,
+			UserID:        oldToken.UserID,
+			UserEmail:     oldToken.UserEmail,
+			UserPublicKey: userPublicKey,
+			IssueTime:     now,
+			ExpireTime:    now.Add(accessTokenDuration),
+		})
 		return err
 	})
 

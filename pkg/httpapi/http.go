@@ -329,11 +329,12 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	switch req.Form.Get("grant_type") {
 	case "authorization_code":
 		res, err = a.IdP.ExchangeCode(req.Context(), &hubauth.ExchangeCodeRequest{
-			ClientID:     req.PostForm.Get("client_id"),
-			Audience:     aud,
-			RedirectURI:  req.PostForm.Get("redirect_uri"),
-			Code:         req.PostForm.Get("code"),
-			CodeVerifier: req.PostForm.Get("code_verifier"),
+			ClientID:      req.PostForm.Get("client_id"),
+			Audience:      aud,
+			RedirectURI:   req.PostForm.Get("redirect_uri"),
+			Code:          req.PostForm.Get("code"),
+			CodeVerifier:  req.PostForm.Get("code_verifier"),
+			UserPublicKey: req.PostForm.Get("user_public_key"),
 		})
 	case "refresh_token":
 		res, err = a.IdP.RefreshToken(req.Context(), &hubauth.RefreshTokenRequest{

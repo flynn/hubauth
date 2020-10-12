@@ -3,7 +3,9 @@ package token
 import (
 	"context"
 	"crypto"
+	"encoding/base64"
 	"errors"
+	"fmt"
 
 	"github.com/flynn/biscuit-go/sig"
 	"github.com/flynn/hubauth/pkg/biscuit"
@@ -20,8 +22,12 @@ type biscuitBuilder struct {
 	rootKeyPair sig.Keypair
 }
 
-func NewBiscuitBuilder() AccessTokenBuilder {
-	return &biscuitBuilder{}
+func NewBiscuitBuilder(kms kmssign.KMSClient, audienceKey kmssign.AudienceKeyNamer, rootKeyPair sig.Keypair) AccessTokenBuilder {
+	return &biscuitBuilder{
+		kms:         kms,
+		audienceKey: audienceKey,
+		rootKeyPair: rootKeyPair,
+	}
 }
 
 func (b *biscuitBuilder) Build(ctx context.Context, audience string, t *AccessTokenData) ([]byte, error) {
@@ -42,4 +48,18 @@ func (b *biscuitBuilder) Build(ctx context.Context, audience string, t *AccessTo
 
 func (b *biscuitBuilder) TokenType() string {
 	return "Biscuit"
+}
+
+func DecodeB64PrivateKey(b64key string) (sig.Keypair, error) {
+	var kp sig.Keypair
+	privKey, err := base64.StdEncoding.DecodeString(b64key)
+	if err != nil {
+		return kp, fmt.Errorf("failed to decode b64 key: %w", err)
+	}
+	rootPrivateKey, err := sig.NewPrivateKey(privKey)
+	if err != nil {
+		return kp, fmt.Errorf("failed to create biscuit private key: %w", err)
+	}
+	kp = sig.NewKeypair(rootPrivateKey)
+	return kp, nil
 }

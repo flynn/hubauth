@@ -69,6 +69,27 @@ func main() {
 		return result.Payload.String()
 	}
 
+	audienceKeyNamer := kmssign.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING"))
+
+	var accessTokenBuilder token.AccessTokenBuilder
+	tokenType, exists := os.LookupEnv("TOKEN_TYPE")
+	if !exists {
+		tokenType = "Bearer"
+	}
+	switch tokenType {
+	case "Bearer":
+		accessTokenBuilder = token.NewSignedPBBuilder(kmsClient, audienceKeyNamer)
+	case "Biscuit":
+		biscuitKey, err := token.DecodeB64PrivateKey(secret("BISCUIT_ROOT_PRIVKEY"))
+		if err != nil {
+			log.Fatalf("failed to initialize biscuit keypair: %v", err)
+		}
+
+		accessTokenBuilder = token.NewBiscuitBuilder(kmsClient, audienceKeyNamer, biscuitKey)
+	default:
+		log.Fatalf("invalid TOKEN_TYPE, must be one of: Bearer, Biscuit")
+	}
+
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
 		Propagation: &propagation.HTTPFormat{},
 		Handler: httpapi.New(httpapi.Config{
@@ -80,10 +101,7 @@ func main() {
 				),
 				[]byte(secret("CODE_KEY_SECRET")),
 				refreshKey,
-				token.NewSignedPBBuilder(
-					kmsClient,
-					kmssign.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
-				),
+				accessTokenBuilder,
 			),
 			CookieKey:  []byte(secret("COOKIE_KEY_SECRET")),
 			ProjectID:  os.Getenv("PROJECT_ID"),

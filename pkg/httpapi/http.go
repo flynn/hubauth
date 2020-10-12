@@ -412,10 +412,10 @@ func (a *api) PublicKey(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	type key struct {
-		PublicKey string `json:"public-key"`
+		PublicKey []byte `json:"public-key"`
 	}
 	json.NewEncoder(w).Encode(&key{
-		PublicKey: base64.StdEncoding.EncodeToString(a.Config.PublicKey),
+		PublicKey: a.Config.PublicKey,
 	})
 }
 

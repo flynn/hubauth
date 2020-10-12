@@ -1,6 +1,7 @@
 package biscuit
 
 import (
+	"crypto/ecdsa"
 	"crypto/rand"
 	"fmt"
 	"time"
@@ -108,7 +109,7 @@ func Sign(token []byte, rootPubKey sig.PublicKey, userKey *UserKeyPair) ([]byte,
 
 // Verify will verify the biscuit, the included audience and user signature, and return an error
 // when anything is invalid.
-func Verify(token []byte, rootPubKey sig.PublicKey, audience string, audienceKey *kmssign.Key) (*Metadata, error) {
+func Verify(token []byte, rootPubKey sig.PublicKey, audience string, audienceKey *ecdsa.PublicKey) (*Metadata, error) {
 	b, err := biscuit.Unmarshal(token)
 	if err != nil {
 		return nil, fmt.Errorf("biscuit: failed to unmarshal: %w", err)

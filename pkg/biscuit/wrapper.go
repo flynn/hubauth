@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/flynn/biscuit-go"
+	"github.com/flynn/biscuit-go/datalog"
 	"github.com/flynn/hubauth/pkg/kmssign"
 )
 
@@ -30,6 +32,10 @@ type hubauthBuilder struct {
 // the verifier is responsible of ensuring that a valid signature exists over the data.
 func (b *hubauthBuilder) withUserToSignFact(userPubkey []byte) error {
 	dataID := biscuit.Integer(0)
+
+	if err := validatePKIXP256PublicKey(userPubkey); err != nil {
+		return err
+	}
 
 	if err := b.AddAuthorityFact(biscuit.Fact{Predicate: biscuit.Predicate{
 		Name: "should_sign",
@@ -108,6 +114,38 @@ func (b *hubauthBuilder) withAudienceSignature(audience string, audienceKey *kms
 	return nil
 }
 
+func (b *hubauthBuilder) withMetadata(m *Metadata) error {
+	return b.AddAuthorityFact(biscuit.Fact{Predicate: biscuit.Predicate{
+		Name: "metadata",
+		IDs: []biscuit.Atom{
+			biscuit.String(m.ClientID),
+			biscuit.String(m.UserID),
+			biscuit.String(m.UserEmail),
+			biscuit.Date(m.IssueTime),
+		},
+	}})
+}
+
+func (b *hubauthBuilder) withExpire(exp time.Time) error {
+	if err := b.AddAuthorityCaveat(biscuit.Rule{
+		Head: biscuit.Predicate{Name: "not_expired", IDs: []biscuit.Atom{biscuit.Variable(0)}},
+		Body: []biscuit.Predicate{
+			{Name: "current_time", IDs: []biscuit.Atom{biscuit.Symbol("ambient"), biscuit.Variable(0)}},
+		},
+		Constraints: []biscuit.Constraint{{
+			Name: biscuit.Variable(0),
+			Checker: biscuit.DateComparisonChecker{
+				Comparison: datalog.DateComparisonBefore,
+				Date:       biscuit.Date(exp),
+			},
+		}},
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type hubauthBlockBuilder struct {
 	biscuit.BlockBuilder
 }
@@ -121,7 +159,6 @@ func (b *hubauthBlockBuilder) withUserSignature(sigData *userSignatureData) erro
 			sigData.Signature,
 			sigData.Nonce,
 			sigData.Timestamp,
-			sigData.SignedBlockCount,
 		},
 	}})
 }
@@ -130,7 +167,7 @@ type hubauthVerifier struct {
 	biscuit.Verifier
 }
 
-func (v *hubauthVerifier) getUserToSignData(userPubKey biscuit.Bytes, signedBlockCount int) (*userToSignData, error) {
+func (v *hubauthVerifier) getUserToSignData(userPubKey biscuit.Bytes) (*userToSignData, error) {
 	toSign, err := v.Query(biscuit.Rule{
 		Head: biscuit.Predicate{
 			Name: "to_sign",
@@ -185,8 +222,6 @@ func (v *hubauthVerifier) getUserToSignData(userPubKey biscuit.Bytes, signedBloc
 		return nil, ErrInvalidToSignDataPrefix
 	}
 
-	sigData.SignedBlockCount = biscuit.Integer(signedBlockCount)
-
 	return sigData, nil
 }
 
@@ -219,12 +254,11 @@ func (v *hubauthVerifier) getUserVerificationData() (*userVerificationData, erro
 				biscuit.Variable(4), // signature
 				biscuit.Variable(5), // signerNonce
 				biscuit.Variable(6), // signerTimestamp
-				biscuit.Variable(7), // signedBlockCount
 			}},
 		Body: []biscuit.Predicate{
 			{Name: "should_sign", IDs: []biscuit.Atom{biscuit.SymbolAuthority, biscuit.Variable(0), biscuit.Variable(1), biscuit.Variable(2)}},
 			{Name: "data", IDs: []biscuit.Atom{biscuit.SymbolAuthority, biscuit.Variable(0), biscuit.Variable(3)}},
-			{Name: "signature", IDs: []biscuit.Atom{biscuit.Variable(0), biscuit.Variable(2), biscuit.Variable(4), biscuit.Variable(5), biscuit.Variable(6), biscuit.Variable(7)}},
+			{Name: "signature", IDs: []biscuit.Atom{biscuit.Variable(0), biscuit.Variable(2), biscuit.Variable(4), biscuit.Variable(5), biscuit.Variable(6)}},
 		},
 	})
 	if err != nil {
@@ -236,7 +270,7 @@ func (v *hubauthVerifier) getUserVerificationData() (*userVerificationData, erro
 	}
 
 	toValidateFact := toValidate[0]
-	if g, w := len(toValidateFact.IDs), 8; g != w {
+	if g, w := len(toValidateFact.IDs), 7; g != w {
 		return nil, fmt.Errorf("invalid to_valid fact atom count, got %d, want %d", g, w)
 	}
 
@@ -269,10 +303,6 @@ func (v *hubauthVerifier) getUserVerificationData() (*userVerificationData, erro
 	toVerify.Timestamp, ok = toValidateFact.IDs[6].(biscuit.Date)
 	if !ok {
 		return nil, errors.New("invalid to_validate atom: timestamp")
-	}
-	toVerify.SignedBlockCount, ok = toValidateFact.IDs[7].(biscuit.Integer)
-	if !ok {
-		return nil, errors.New("invalid to_validate atom: signedBlockCount")
 	}
 
 	return toVerify, nil
@@ -326,10 +356,70 @@ func (v *hubauthVerifier) getAudienceVerificationData(audience string) (*audienc
 	return toVerify, nil
 }
 
+func (v *hubauthVerifier) getMetadata() (*Metadata, error) {
+	metaFacts, err := v.Query(biscuit.Rule{
+		Head: biscuit.Predicate{
+			Name: "metadata",
+			IDs: []biscuit.Atom{
+				biscuit.Variable(0), // clientID
+				biscuit.Variable(1), // userID
+				biscuit.Variable(2), // userEmail
+				biscuit.Variable(3), // issueTime
+			}},
+		Body: []biscuit.Predicate{
+			{Name: "metadata", IDs: []biscuit.Atom{biscuit.SymbolAuthority, biscuit.Variable(0), biscuit.Variable(1), biscuit.Variable(2), biscuit.Variable(3)}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if g, w := len(metaFacts), 1; g != w {
+		return nil, fmt.Errorf("invalid metadata fact count, got %d, want %d", g, w)
+	}
+
+	metaFact := metaFacts[0]
+
+	clientID, ok := metaFact.IDs[0].(biscuit.String)
+	if !ok {
+		return nil, errors.New("invalid metadata atom: clientID")
+	}
+	userID, ok := metaFact.IDs[1].(biscuit.String)
+	if !ok {
+		return nil, errors.New("invalid metadata atom: userID")
+	}
+	userEmail, ok := metaFact.IDs[2].(biscuit.String)
+	if !ok {
+		return nil, errors.New("invalid metadata atom: userEmail")
+	}
+	issueTime, ok := metaFact.IDs[3].(biscuit.Date)
+	if !ok {
+		return nil, errors.New("invalid metadata atom: issueTime")
+	}
+	return &Metadata{
+		ClientID:  string(clientID),
+		UserID:    string(userID),
+		UserEmail: string(userEmail),
+		IssueTime: time.Time(issueTime),
+	}, nil
+}
+
 func (v *hubauthVerifier) withValidatedAudienceSignature(data *audienceVerificationData) error {
 	v.AddFact(biscuit.Fact{Predicate: biscuit.Predicate{
 		Name: "valid_audience_signature",
 		IDs:  []biscuit.Atom{biscuit.Symbol("ambient"), data.Audience, data.Signature},
+	}})
+
+	return nil
+}
+
+func (v *hubauthVerifier) withCurrentTime(t time.Time) error {
+	v.AddFact(biscuit.Fact{Predicate: biscuit.Predicate{
+		Name: "current_time",
+		IDs: []biscuit.Atom{
+			biscuit.Symbol("ambient"),
+			biscuit.Date(t),
+		},
 	}})
 
 	return nil

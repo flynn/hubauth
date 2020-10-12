@@ -9,14 +9,14 @@ require (
 	github.com/alecthomas/kong v0.2.12
 	github.com/aws/aws-sdk-go v1.34.6 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
-	github.com/flynn/biscuit-go v0.0.0-20200907174027-193b7bdbbdca
-	github.com/golang/protobuf v1.4.3
+	github.com/flynn/biscuit-go v0.0.0-20201009174859-e7eb59a90195
+	github.com/golang/protobuf v1.4.2
 	github.com/googleapis/gax-go/v2 v2.0.5
 	github.com/jedib0t/go-pretty/v6 v6.0.5
 	github.com/stretchr/testify v1.6.1
 	go.opencensus.io v0.22.5
 	go.uber.org/zap v1.16.0
-	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
+	golang.org/x/crypto v0.0.0-20201002170205-7f63de1d35b0
 	golang.org/x/exp/errors v0.0.0-20200513190911-00229845015e
 	golang.org/x/net v0.0.0-20201209123823-ac852fbbde11
 	golang.org/x/oauth2 v0.0.0-20201208152858-08078c50e5b5

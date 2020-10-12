@@ -351,8 +351,8 @@ func (s *steps) VerifyRefreshToken(ctx context.Context, rt *hubauth.RefreshToken
 	return nil
 }
 
-func (s *steps) SignAccessToken(ctx context.Context, audience string, t *token.AccessTokenData, now time.Time) (token string, err error) {
-	ctx, span := trace.StartSpan(ctx, "idp.SignAccessToken")
+func (s *steps) BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (token string, err error) {
+	ctx, span := trace.StartSpan(ctx, "idp.BuildAccessToken")
 	span.AddAttributes(
 		trace.StringAttribute("client_id", t.ClientID),
 		trace.StringAttribute("user_id", t.UserID),
@@ -360,7 +360,7 @@ func (s *steps) SignAccessToken(ctx context.Context, audience string, t *token.A
 	)
 	defer span.End()
 
-	tokenBytes, err := s.builder.Build(ctx, audience, t, now, accessTokenDuration)
+	tokenBytes, err := s.builder.Build(ctx, audience, t)
 	if err != nil {
 		return "", fmt.Errorf("idp: error building access token: %w", err)
 	}

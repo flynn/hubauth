@@ -31,15 +31,17 @@ func TestSignedPBBuilder(t *testing.T) {
 	now := time.Now()
 	ctx := context.Background()
 
-	data := &AccessTokenData{
-		ClientID:  "clientID",
-		UserEmail: "userEmail",
-		UserID:    "userID",
-	}
-
 	accessTokenDuration := 5 * time.Minute
 
-	accessTokenBytes, err := builder.Build(ctx, audienceName, data, now, accessTokenDuration)
+	data := &AccessTokenData{
+		ClientID:   "clientID",
+		UserEmail:  "userEmail",
+		UserID:     "userID",
+		IssueTime:  now,
+		ExpireTime: now.Add(accessTokenDuration),
+	}
+
+	accessTokenBytes, err := builder.Build(ctx, audienceName, data)
 	require.NoError(t, err)
 
 	got := new(pb.AccessToken)

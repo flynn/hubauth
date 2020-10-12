@@ -3,10 +3,12 @@ package biscuit
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/flynn/biscuit-go"
@@ -25,30 +27,27 @@ const (
 )
 
 type userToSignData struct {
-	DataID           biscuit.Integer
-	Alg              biscuit.Symbol
-	Data             biscuit.Bytes
-	SignedBlockCount biscuit.Integer
+	DataID biscuit.Integer
+	Alg    biscuit.Symbol
+	Data   biscuit.Bytes
 }
 
 type userSignatureData struct {
-	DataID           biscuit.Integer
-	UserPubKey       biscuit.Bytes
-	Signature        biscuit.Bytes
-	SignedBlockCount biscuit.Integer
-	Nonce            biscuit.Bytes
-	Timestamp        biscuit.Date
+	DataID     biscuit.Integer
+	UserPubKey biscuit.Bytes
+	Signature  biscuit.Bytes
+	Nonce      biscuit.Bytes
+	Timestamp  biscuit.Date
 }
 
 type userVerificationData struct {
-	DataID           biscuit.Integer
-	Alg              biscuit.Symbol
-	Data             biscuit.Bytes
-	UserPubKey       biscuit.Bytes
-	Signature        biscuit.Bytes
-	SignedBlockCount biscuit.Integer
-	Nonce            biscuit.Bytes
-	Timestamp        biscuit.Date
+	DataID     biscuit.Integer
+	Alg        biscuit.Symbol
+	Data       biscuit.Bytes
+	UserPubKey biscuit.Bytes
+	Signature  biscuit.Bytes
+	Nonce      biscuit.Bytes
+	Timestamp  biscuit.Date
 }
 
 func userSign(tokenHash []byte, userKey *UserKeyPair, toSignData *userToSignData) (*userSignatureData, error) {
@@ -67,7 +66,6 @@ func userSign(tokenHash []byte, userKey *UserKeyPair, toSignData *userToSignData
 	dataToSign = append(dataToSign, tokenHash...)
 	dataToSign = append(dataToSign, signerNonce...)
 	dataToSign = append(dataToSign, []byte(signerTimestamp.Format(time.RFC3339))...)
-	dataToSign = append(dataToSign, []byte(toSignData.SignedBlockCount.String())...)
 
 	var signedData biscuit.Bytes
 	switch SignatureAlg(toSignData.Alg) {
@@ -86,12 +84,11 @@ func userSign(tokenHash []byte, userKey *UserKeyPair, toSignData *userToSignData
 	}
 
 	return &userSignatureData{
-		DataID:           toSignData.DataID,
-		Nonce:            signerNonce,
-		Signature:        signedData,
-		SignedBlockCount: toSignData.SignedBlockCount,
-		Timestamp:        biscuit.Date(signerTimestamp),
-		UserPubKey:       userKey.Public,
+		DataID:     toSignData.DataID,
+		Nonce:      signerNonce,
+		Signature:  signedData,
+		Timestamp:  biscuit.Date(signerTimestamp),
+		UserPubKey: userKey.Public,
 	}, nil
 }
 
@@ -101,7 +98,6 @@ func verifyUserSignature(signedTokenHash []byte, data *userVerificationData) err
 	signedData = append(signedData, signedTokenHash...)
 	signedData = append(signedData, data.Nonce...)
 	signedData = append(signedData, []byte(time.Time(data.Timestamp).Format(time.RFC3339))...)
-	signedData = append(signedData, []byte(data.SignedBlockCount.String())...)
 
 	switch SignatureAlg(data.Alg) {
 	case ECDSA_P256_SHA256:
@@ -158,5 +154,23 @@ func verifyAudienceSignature(audiencePubkey *kmssign.Key, data *audienceVerifica
 	if !audiencePubkey.Verify(hash[:], data.Signature) {
 		return errors.New("invalid signature")
 	}
+	return nil
+}
+
+func validatePKIXP256PublicKey(pubkey []byte) error {
+	key, err := x509.ParsePKIXPublicKey(pubkey)
+	if err != nil {
+		return fmt.Errorf("failed to parse PKIX, ASN.1 DER public key: %v", err)
+	}
+
+	ecKey, ok := key.(*ecdsa.PublicKey)
+	if !ok {
+		return errors.New("public key is not an *ecdsa.PublicKey")
+	}
+
+	if ecKey.Curve != elliptic.P256() {
+		return fmt.Errorf("publickey is on wrong curve, expected P256")
+	}
+
 	return nil
 }

@@ -78,9 +78,9 @@ func (m *mockSteps) SignRefreshToken(ctx context.Context, signKey signpb.Private
 	args := m.Called(ctx, signKey, t)
 	return args.String(0), args.Error(1)
 }
-func (m *mockSteps) BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (string, error) {
+func (m *mockSteps) BuildAccessToken(ctx context.Context, audience string, t *token.AccessTokenData) (string, string, error) {
 	args := m.Called(ctx, audience, t)
-	return args.String(0), args.Error(1)
+	return args.String(0), args.String(1), args.Error(2)
 }
 func (m *mockSteps) RenewRefreshToken(ctx context.Context, clientID, oldTokenID string, oldTokenIssueTime, now time.Time) (*hubauth.RefreshToken, error) {
 	args := m.Called(ctx, clientID, oldTokenID, oldTokenIssueTime, now)
@@ -671,7 +671,7 @@ func TestExchangeCode(t *testing.T) {
 				UserEmail:  userEmail,
 				IssueTime:  now,
 				ExpireTime: now.Add(accessTokenDuration),
-			}).Return(accessToken, nil)
+			}).Return(accessToken, testCase.Want.TokenType, nil)
 
 			req := &hubauth.ExchangeCodeRequest{
 				ClientID:     clientID,
@@ -802,7 +802,7 @@ func TestExchangeCodeErrors(t *testing.T) {
 			idpService.steps.(*mockSteps).On("VerifyAudience", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(testCase.VerifyAudienceErr)
 			idpService.steps.(*mockSteps).On("SaveRefreshToken", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&hubauth.Client{}, testCase.SaveErr)
 			idpService.steps.(*mockSteps).On("SignRefreshToken", mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignRTErr)
-			idpService.steps.(*mockSteps).On("BuildAccessToken", mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignATErr)
+			idpService.steps.(*mockSteps).On("BuildAccessToken", mock.Anything, mock.Anything, mock.Anything).Return("", "", testCase.SignATErr)
 
 			req := &hubauth.ExchangeCodeRequest{
 				Code:     testCase.Code,
@@ -902,7 +902,7 @@ func TestRefreshToken(t *testing.T) {
 				UserEmail:  userEmail,
 				IssueTime:  now,
 				ExpireTime: now.Add(accessTokenDuration),
-			}).Return(newAccessTokenStr, nil)
+			}).Return(newAccessTokenStr, testCase.Want.TokenType, nil)
 
 			oldTokenSigned, err := signpb.SignMarshal(context.Background(), idpService.refreshKey, &pb.RefreshToken{
 				Key:        oldTokenID,
@@ -1005,7 +1005,7 @@ func TestRefreshTokenStepErrors(t *testing.T) {
 			idpService.steps.(*mockSteps).On("VerifyAudience", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(testCase.VerifyAudienceErr)
 			idpService.steps.(*mockSteps).On("RenewRefreshToken", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&hubauth.RefreshToken{}, testCase.RenewRTErr)
 			idpService.steps.(*mockSteps).On("SignRefreshToken", mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignRTErr)
-			idpService.steps.(*mockSteps).On("BuildAccessToken", mock.Anything, mock.Anything, mock.Anything).Return("", testCase.SignATErr)
+			idpService.steps.(*mockSteps).On("BuildAccessToken", mock.Anything, mock.Anything, mock.Anything).Return("", "", testCase.SignATErr)
 
 			_, err = idpService.RefreshToken(context.Background(), req)
 			require.Equal(t, testCase.ExpectedErr, err)

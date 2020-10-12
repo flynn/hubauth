@@ -2,6 +2,7 @@ package biscuit
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestBiscuit(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("signed biscuit size: %d", len(signedBiscuit))
 
-		res, err := Verify(signedBiscuit, rootKey.Public(), audience, audienceKey)
+		res, err := Verify(signedBiscuit, rootKey.Public(), audience, audienceKey.Public().(*ecdsa.PublicKey))
 		require.NoError(t, err)
 		require.Equal(t, metas.ClientID, res.ClientID)
 		require.Equal(t, metas.UserID, res.UserID)
@@ -53,7 +54,7 @@ func TestBiscuit(t *testing.T) {
 		signedBiscuit, err := Sign(signableBiscuit, rootKey.Public(), userKey)
 		require.NoError(t, err)
 
-		_, err = Verify(signedBiscuit, rootKey.Public(), "http://another.audience.url", audienceKey)
+		_, err = Verify(signedBiscuit, rootKey.Public(), "http://another.audience.url", audienceKey.Public().(*ecdsa.PublicKey))
 		require.Error(t, err)
 
 		wrongAudience := "http://another.audience.url"
@@ -61,7 +62,7 @@ func TestBiscuit(t *testing.T) {
 		wrongAudienceKey, err := kmssign.NewKey(context.Background(), kms, wrongAudience)
 		require.NoError(t, err)
 
-		_, err = Verify(signedBiscuit, rootKey.Public(), audience, wrongAudienceKey)
+		_, err = Verify(signedBiscuit, rootKey.Public(), audience, wrongAudienceKey.Public().(*ecdsa.PublicKey))
 		require.Error(t, err)
 	})
 }

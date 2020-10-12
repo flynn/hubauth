@@ -147,11 +147,12 @@ func audienceSign(audience string, audienceKey *kmssign.Key) (*audienceVerificat
 	}, nil
 }
 
-func verifyAudienceSignature(audiencePubkey *kmssign.Key, data *audienceVerificationData) error {
+func verifyAudienceSignature(audiencePubkey *ecdsa.PublicKey, data *audienceVerificationData) error {
 	signedData := append(signStaticCtx, data.Challenge...)
 	signedData = append(signedData, []byte(data.Audience)...)
 	hash := sha256.Sum256(signedData)
-	if !audiencePubkey.Verify(hash[:], data.Signature) {
+
+	if !ecdsa.VerifyASN1(audiencePubkey, hash[:], data.Signature) {
 		return errors.New("invalid signature")
 	}
 	return nil

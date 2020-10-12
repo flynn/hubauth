@@ -25,16 +25,14 @@ func TestUserSignVerify(t *testing.T) {
 	userKey := generateUserKeyPair(t)
 
 	toSignData := &userToSignData{
-		DataID:           1,
-		Alg:              biscuit.Symbol(ECDSA_P256_SHA256),
-		Data:             []byte("challenge"),
-		SignedBlockCount: 2,
+		DataID: 1,
+		Alg:    biscuit.Symbol(ECDSA_P256_SHA256),
+		Data:   []byte("challenge"),
 	}
 
 	signedData, err := userSign(tokenHash, userKey, toSignData)
 	require.NoError(t, err)
 	require.NotEmpty(t, signedData.Signature)
-	require.Equal(t, biscuit.Integer(2), signedData.SignedBlockCount)
 	require.Equal(t, biscuit.Integer(1), signedData.DataID)
 	require.Equal(t, biscuit.Bytes(userKey.Public), signedData.UserPubKey)
 
@@ -45,14 +43,13 @@ func TestUserSignVerify(t *testing.T) {
 	require.WithinDuration(t, time.Now(), time.Time(signedData.Timestamp), 1*time.Second)
 
 	require.NoError(t, verifyUserSignature(tokenHash, &userVerificationData{
-		DataID:           toSignData.DataID,
-		Alg:              toSignData.Alg,
-		Data:             toSignData.Data,
-		Nonce:            signedData.Nonce,
-		Signature:        signedData.Signature,
-		SignedBlockCount: signedData.SignedBlockCount,
-		Timestamp:        signedData.Timestamp,
-		UserPubKey:       signedData.UserPubKey,
+		DataID:     toSignData.DataID,
+		Alg:        toSignData.Alg,
+		Data:       toSignData.Data,
+		Nonce:      signedData.Nonce,
+		Signature:  signedData.Signature,
+		Timestamp:  signedData.Timestamp,
+		UserPubKey: signedData.UserPubKey,
 	}))
 }
 
@@ -112,10 +109,9 @@ func TestUserSignFail(t *testing.T) {
 func TestVerifyUserSignatureFail(t *testing.T) {
 	tokenHash := []byte("token hash")
 	toSignData := &userToSignData{
-		DataID:           1,
-		Alg:              biscuit.Symbol(ECDSA_P256_SHA256),
-		Data:             []byte("challenge"),
-		SignedBlockCount: 2,
+		DataID: 1,
+		Alg:    biscuit.Symbol(ECDSA_P256_SHA256),
+		Data:   []byte("challenge"),
 	}
 
 	userKey := generateUserKeyPair(t)
@@ -160,14 +156,13 @@ func TestVerifyUserSignatureFail(t *testing.T) {
 			desc:      "wrong pubkey",
 			tokenHash: tokenHash,
 			data: &userVerificationData{
-				Alg:              biscuit.Symbol(ECDSA_P256_SHA256),
-				UserPubKey:       invalidKey.Public,
-				Data:             toSignData.Data,
-				DataID:           toSignData.DataID,
-				Nonce:            signedData.Nonce,
-				Signature:        signedData.Signature,
-				Timestamp:        signedData.Timestamp,
-				SignedBlockCount: signedData.SignedBlockCount,
+				Alg:        biscuit.Symbol(ECDSA_P256_SHA256),
+				UserPubKey: invalidKey.Public,
+				Data:       toSignData.Data,
+				DataID:     toSignData.DataID,
+				Nonce:      signedData.Nonce,
+				Signature:  signedData.Signature,
+				Timestamp:  signedData.Timestamp,
 			},
 		},
 		{
@@ -175,14 +170,13 @@ func TestVerifyUserSignatureFail(t *testing.T) {
 			expectedErr: ErrInvalidSignature,
 			tokenHash:   []byte("wrong"),
 			data: &userVerificationData{
-				Alg:              biscuit.Symbol(ECDSA_P256_SHA256),
-				UserPubKey:       userKey.Public,
-				Data:             toSignData.Data,
-				DataID:           toSignData.DataID,
-				Nonce:            signedData.Nonce,
-				Signature:        signedData.Signature,
-				Timestamp:        signedData.Timestamp,
-				SignedBlockCount: signedData.SignedBlockCount,
+				Alg:        biscuit.Symbol(ECDSA_P256_SHA256),
+				UserPubKey: userKey.Public,
+				Data:       toSignData.Data,
+				DataID:     toSignData.DataID,
+				Nonce:      signedData.Nonce,
+				Signature:  signedData.Signature,
+				Timestamp:  signedData.Timestamp,
 			},
 		},
 		{
@@ -190,14 +184,13 @@ func TestVerifyUserSignatureFail(t *testing.T) {
 			expectedErr: ErrInvalidSignature,
 			tokenHash:   tokenHash,
 			data: &userVerificationData{
-				Alg:              biscuit.Symbol(ECDSA_P256_SHA256),
-				UserPubKey:       userKey.Public,
-				Data:             toSignData.Data,
-				DataID:           toSignData.DataID,
-				Nonce:            []byte("another nonce"),
-				Signature:        signedData.Signature,
-				SignedBlockCount: signedData.SignedBlockCount,
-				Timestamp:        signedData.Timestamp,
+				Alg:        biscuit.Symbol(ECDSA_P256_SHA256),
+				UserPubKey: userKey.Public,
+				Data:       toSignData.Data,
+				DataID:     toSignData.DataID,
+				Nonce:      []byte("another nonce"),
+				Signature:  signedData.Signature,
+				Timestamp:  signedData.Timestamp,
 			},
 		},
 		{
@@ -205,29 +198,13 @@ func TestVerifyUserSignatureFail(t *testing.T) {
 			expectedErr: ErrInvalidSignature,
 			tokenHash:   tokenHash,
 			data: &userVerificationData{
-				Alg:              biscuit.Symbol(ECDSA_P256_SHA256),
-				UserPubKey:       userKey.Public,
-				Data:             toSignData.Data,
-				DataID:           toSignData.DataID,
-				Nonce:            signedData.Nonce,
-				Signature:        signedData.Signature,
-				Timestamp:        biscuit.Date(time.Now().Add(1 * time.Second)),
-				SignedBlockCount: signedData.SignedBlockCount,
-			},
-		},
-		{
-			desc:        "tampered signedBlockCount",
-			expectedErr: ErrInvalidSignature,
-			tokenHash:   tokenHash,
-			data: &userVerificationData{
-				Alg:              biscuit.Symbol(ECDSA_P256_SHA256),
-				UserPubKey:       userKey.Public,
-				Data:             toSignData.Data,
-				DataID:           toSignData.DataID,
-				Nonce:            signedData.Nonce,
-				Signature:        signedData.Signature,
-				Timestamp:        signedData.Timestamp,
-				SignedBlockCount: signedData.SignedBlockCount + 1,
+				Alg:        biscuit.Symbol(ECDSA_P256_SHA256),
+				UserPubKey: userKey.Public,
+				Data:       toSignData.Data,
+				DataID:     toSignData.DataID,
+				Nonce:      signedData.Nonce,
+				Signature:  signedData.Signature,
+				Timestamp:  biscuit.Date(time.Now().Add(1 * time.Second)),
 			},
 		},
 	}

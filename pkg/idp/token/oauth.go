@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto"
 	"fmt"
-	"time"
 
 	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/pb"
@@ -26,11 +25,11 @@ func NewSignedPBBuilder(kms kmssign.KMSClient, audienceKey kmssign.AudienceKeyNa
 	}
 }
 
-func (b *signedPbBuilder) Build(ctx context.Context, audience string, t *AccessTokenData, now time.Time, duration time.Duration) ([]byte, error) {
+func (b *signedPbBuilder) Build(ctx context.Context, audience string, t *AccessTokenData) ([]byte, error) {
 	signKey := kmssign.NewPrivateKey(b.kms, b.audienceKey(audience), crypto.SHA256)
 
-	exp, _ := ptypes.TimestampProto(now.Add(duration))
-	iss, _ := ptypes.TimestampProto(now)
+	exp, _ := ptypes.TimestampProto(t.ExpireTime)
+	iss, _ := ptypes.TimestampProto(t.IssueTime)
 	msg := &pb.AccessToken{
 		ClientId:   t.ClientID,
 		UserId:     t.UserID,

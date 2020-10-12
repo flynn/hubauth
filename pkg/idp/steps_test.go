@@ -33,8 +33,8 @@ type mockAccessTokenBuilder struct {
 
 var _ token.AccessTokenBuilder = (*mockAccessTokenBuilder)(nil)
 
-func (m *mockAccessTokenBuilder) Build(ctx context.Context, audience string, t *token.AccessTokenData, now time.Time, duration time.Duration) ([]byte, error) {
-	args := m.Called(ctx, audience, t, now, duration)
+func (m *mockAccessTokenBuilder) Build(ctx context.Context, audience string, t *token.AccessTokenData) ([]byte, error) {
+	args := m.Called(ctx, audience, t)
 	return args.Get(0).([]byte), args.Error(1)
 }
 
@@ -769,21 +769,23 @@ func TestVerifyRefreshTokenErrors(t *testing.T) {
 	}
 }
 
-func TestSignAccessToken(t *testing.T) {
+func TestBuildAccessToken(t *testing.T) {
 	s := newTestSteps(t)
 
 	now := time.Now()
 	data := &token.AccessTokenData{
-		ClientID:  "clientID",
-		UserID:    "userID",
-		UserEmail: "userEmail",
+		ClientID:   "clientID",
+		UserID:     "userID",
+		UserEmail:  "userEmail",
+		IssueTime:  now,
+		ExpireTime: now.Add(accessTokenDuration),
 	}
 
 	expectedAccessToken := []byte("expected-access-token")
 
-	s.builder.(*mockAccessTokenBuilder).On("Build", mock.Anything, testAudienceName, data, now, accessTokenDuration).Return(expectedAccessToken, nil)
+	s.builder.(*mockAccessTokenBuilder).On("Build", mock.Anything, testAudienceName, data).Return(expectedAccessToken, nil)
 
-	accessToken, err := s.SignAccessToken(context.Background(), testAudienceName, data, now)
+	accessToken, err := s.BuildAccessToken(context.Background(), testAudienceName, data)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, accessToken)

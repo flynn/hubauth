@@ -3,11 +3,19 @@ package biscuit
 import (
 	"crypto/rand"
 	"fmt"
+	"time"
 
 	"github.com/flynn/biscuit-go"
 	"github.com/flynn/biscuit-go/sig"
 	"github.com/flynn/hubauth/pkg/kmssign"
 )
+
+type Metadata struct {
+	ClientID  string
+	UserID    string
+	UserEmail string
+	IssueTime time.Time
+}
 
 type UserKeyPair struct {
 	Public  []byte
@@ -16,7 +24,7 @@ type UserKeyPair struct {
 
 // GenerateSignable returns a biscuit which will only verify after being
 // signed with the private key matching the given userPubkey.
-func GenerateSignable(rootKey sig.Keypair, audience string, audienceKey *kmssign.Key, userPubkey []byte) ([]byte, error) {
+func GenerateSignable(rootKey sig.Keypair, audience string, audienceKey *kmssign.Key, userPublicKey []byte, expireTime time.Time, m *Metadata) ([]byte, error) {
 	builder := &hubauthBuilder{
 		Builder: biscuit.NewBuilder(rand.Reader, rootKey),
 	}
@@ -25,7 +33,15 @@ func GenerateSignable(rootKey sig.Keypair, audience string, audienceKey *kmssign
 		return nil, err
 	}
 
-	if err := builder.withUserToSignFact(userPubkey); err != nil {
+	if err := builder.withUserToSignFact(userPublicKey); err != nil {
+		return nil, err
+	}
+
+	if err := builder.withExpire(expireTime); err != nil {
+		return nil, err
+	}
+
+	if err := builder.withMetadata(m); err != nil {
 		return nil, err
 	}
 
@@ -55,7 +71,7 @@ func Sign(token []byte, rootPubKey sig.PublicKey, userKey *UserKeyPair) ([]byte,
 		Verifier: v,
 	}
 
-	toSignData, err := verifier.getUserToSignData(userKey.Public, b.BlockCount())
+	toSignData, err := verifier.getUserToSignData(userKey.Public)
 	if err != nil {
 		return nil, fmt.Errorf("biscuit: failed to get to_sign data: %w", err)
 	}
@@ -92,46 +108,56 @@ func Sign(token []byte, rootPubKey sig.PublicKey, userKey *UserKeyPair) ([]byte,
 
 // Verify will verify the biscuit, the included audience and user signature, and return an error
 // when anything is invalid.
-func Verify(token []byte, rootPubKey sig.PublicKey, audience string, audienceKey *kmssign.Key) error {
+func Verify(token []byte, rootPubKey sig.PublicKey, audience string, audienceKey *kmssign.Key) (*Metadata, error) {
 	b, err := biscuit.Unmarshal(token)
 	if err != nil {
-		return fmt.Errorf("biscuit: failed to unmarshal: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to unmarshal: %w", err)
 	}
 
 	v, err := b.Verify(rootPubKey)
 	if err != nil {
-		return fmt.Errorf("biscuit: failed to verify: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to verify: %w", err)
 	}
 	verifier := &hubauthVerifier{v}
 
 	audienceVerificationData, err := verifier.getAudienceVerificationData(audience)
 	if err != nil {
-		return fmt.Errorf("biscuit: failed to retrieve audience signature data: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to retrieve audience signature data: %w", err)
 	}
 
 	if err := verifyAudienceSignature(audienceKey, audienceVerificationData); err != nil {
-		return fmt.Errorf("biscuit: failed to verify audience signature: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to verify audience signature: %w", err)
 	}
 	if err := verifier.withValidatedAudienceSignature(audienceVerificationData); err != nil {
-		return fmt.Errorf("biscuit: failed to add validated signature: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to add validated signature: %w", err)
 	}
 
 	userVerificationData, err := verifier.getUserVerificationData()
 	if err != nil {
-		return fmt.Errorf("biscuit: failed to retrieve user signature data: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to retrieve user signature data: %w", err)
 	}
 
-	signedTokenHash, err := b.SHA256Sum(int(userVerificationData.SignedBlockCount))
+	// TODO: improve biscuit API to allow retrieve the block index the signature is at
+	// so that we can still append other blocks if needed. Right now the signature MUST BE the last block.
+	signedTokenHash, err := b.SHA256Sum(b.BlockCount() - 1)
 	if err != nil {
-		return fmt.Errorf("biscuit: failed to generate token hash: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to generate token hash: %w", err)
 	}
 
 	if err := verifyUserSignature(signedTokenHash, userVerificationData); err != nil {
-		return fmt.Errorf("biscuit: failed to verify user signature: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to verify user signature: %w", err)
 	}
 	if err := verifier.withValidatedUserSignature(userVerificationData); err != nil {
-		return fmt.Errorf("biscuit: failed to add validated signature: %w", err)
+		return nil, fmt.Errorf("biscuit: failed to add validated signature: %w", err)
 	}
 
-	return verifier.Verify()
+	if err := verifier.withCurrentTime(time.Now()); err != nil {
+		return nil, fmt.Errorf("biscuit: failed to add current time: %w", err)
+	}
+
+	if err := verifier.Verify(); err != nil {
+		return nil, fmt.Errorf("biscuit: failed to verify: %w", err)
+	}
+
+	return verifier.getMetadata()
 }

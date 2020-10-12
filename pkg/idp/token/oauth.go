@@ -44,3 +44,7 @@ func (b *signedPbBuilder) Build(ctx context.Context, audience string, t *AccessT
 
 	return tokenBytes, nil
 }
+
+func (b *signedPbBuilder) TokenType() string {
+	return "Bearer"
+}

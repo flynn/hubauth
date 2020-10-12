@@ -16,4 +16,5 @@ type AccessTokenData struct {
 
 type AccessTokenBuilder interface {
 	Build(ctx context.Context, audience string, t *AccessTokenData) ([]byte, error)
+	TokenType() string
 }

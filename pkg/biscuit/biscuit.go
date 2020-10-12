@@ -3,6 +3,7 @@ package biscuit
 import (
 	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/x509"
 	"fmt"
 	"time"
 
@@ -21,6 +22,21 @@ type Metadata struct {
 type UserKeyPair struct {
 	Public  []byte
 	Private []byte
+}
+
+func NewECDSAKeyPair(priv *ecdsa.PrivateKey) (*UserKeyPair, error) {
+	privKeyBytes, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal ecdsa privkey: %v", err)
+	}
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal ecdsa pubkey: %v", err)
+	}
+	return &UserKeyPair{
+		Private: privKeyBytes,
+		Public:  pubKeyBytes,
+	}, nil
 }
 
 // GenerateSignable returns a biscuit which will only verify after being

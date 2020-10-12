@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"testing"
+	"time"
 
 	"github.com/flynn/biscuit-go/sig"
 	"github.com/flynn/hubauth/pkg/kmssign"
@@ -20,8 +21,13 @@ func TestBiscuit(t *testing.T) {
 	require.NoError(t, err)
 
 	userKey := generateUserKeyPair(t)
-
-	signableBiscuit, err := GenerateSignable(rootKey, audience, audienceKey, userKey.Public)
+	metas := &Metadata{
+		ClientID:  "abcd",
+		UserEmail: "1234@example.com",
+		UserID:    "1234",
+		IssueTime: time.Now(),
+	}
+	signableBiscuit, err := GenerateSignable(rootKey, audience, audienceKey, userKey.Public, time.Now().Add(5*time.Minute), metas)
 	require.NoError(t, err)
 	t.Logf("signable biscuit size: %d", len(signableBiscuit))
 
@@ -30,8 +36,12 @@ func TestBiscuit(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("signed biscuit size: %d", len(signedBiscuit))
 
-		err = Verify(signedBiscuit, rootKey.Public(), audience, audienceKey)
+		res, err := Verify(signedBiscuit, rootKey.Public(), audience, audienceKey)
 		require.NoError(t, err)
+		require.Equal(t, metas.ClientID, res.ClientID)
+		require.Equal(t, metas.UserID, res.UserID)
+		require.Equal(t, metas.UserEmail, res.UserEmail)
+		require.WithinDuration(t, metas.IssueTime, res.IssueTime, 1*time.Second)
 	})
 
 	t.Run("user sign with wrong key", func(t *testing.T) {
@@ -43,7 +53,7 @@ func TestBiscuit(t *testing.T) {
 		signedBiscuit, err := Sign(signableBiscuit, rootKey.Public(), userKey)
 		require.NoError(t, err)
 
-		err = Verify(signedBiscuit, rootKey.Public(), "http://another.audience.url", audienceKey)
+		_, err = Verify(signedBiscuit, rootKey.Public(), "http://another.audience.url", audienceKey)
 		require.Error(t, err)
 
 		wrongAudience := "http://another.audience.url"
@@ -51,7 +61,7 @@ func TestBiscuit(t *testing.T) {
 		wrongAudienceKey, err := kmssign.NewKey(context.Background(), kms, wrongAudience)
 		require.NoError(t, err)
 
-		err = Verify(signedBiscuit, rootKey.Public(), audience, wrongAudienceKey)
+		_, err = Verify(signedBiscuit, rootKey.Public(), audience, wrongAudienceKey)
 		require.Error(t, err)
 	})
 }

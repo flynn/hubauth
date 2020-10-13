@@ -23,7 +23,7 @@ func TestSignedPBBuilder(t *testing.T) {
 	audienceKeyName := audienceKeyNamer(audienceName)
 	kms := kmssim.NewClient([]string{audienceKeyName})
 
-	builder := NewSignedPBBuilder(kms, audienceKeyNamer)
+	builder := NewBearerBuilder(kms, audienceKeyNamer)
 
 	signKey, err := kmssign.NewKey(context.Background(), kms, audienceKeyName)
 	require.NoError(t, err)

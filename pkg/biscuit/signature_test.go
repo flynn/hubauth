@@ -211,7 +211,6 @@ func TestVerifyUserSignatureFail(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.desc, func(t *testing.T) {
-
 			err := verifyUserSignature(testCase.tokenHash, testCase.data)
 			require.Error(t, err)
 			if testCase.expectedErr != nil {
@@ -224,12 +223,8 @@ func TestVerifyUserSignatureFail(t *testing.T) {
 func generateUserKeyPair(t *testing.T) *UserKeyPair {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	privBytes, err := x509.MarshalECPrivateKey(priv)
+
+	kp, err := NewECDSAKeyPair(priv)
 	require.NoError(t, err)
-	pubBytes, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
-	require.NoError(t, err)
-	return &UserKeyPair{
-		Private: privBytes,
-		Public:  pubBytes,
-	}
+	return kp
 }

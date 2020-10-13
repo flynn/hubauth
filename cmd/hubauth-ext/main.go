@@ -82,7 +82,7 @@ func main() {
 	}
 	switch tokenType {
 	case "Bearer":
-		accessTokenBuilder = token.NewSignedPBBuilder(kmsClient, audienceKeyNamer)
+		accessTokenBuilder = token.NewBearerBuilder(kmsClient, audienceKeyNamer)
 	case "Biscuit":
 		biscuitKey, err := token.DecodeB64PrivateKey(secret("BISCUIT_ROOT_PRIVKEY"))
 		if err != nil {

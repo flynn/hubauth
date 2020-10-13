@@ -11,21 +11,21 @@ import (
 	"github.com/golang/protobuf/ptypes"
 )
 
-type signedPbBuilder struct {
+type bearerBuilder struct {
 	kms         kmssign.KMSClient
 	audienceKey kmssign.AudienceKeyNamer
 }
 
-var _ AccessTokenBuilder = (*signedPbBuilder)(nil)
+var _ AccessTokenBuilder = (*bearerBuilder)(nil)
 
-func NewSignedPBBuilder(kms kmssign.KMSClient, audienceKey kmssign.AudienceKeyNamer) AccessTokenBuilder {
-	return &signedPbBuilder{
+func NewBearerBuilder(kms kmssign.KMSClient, audienceKey kmssign.AudienceKeyNamer) AccessTokenBuilder {
+	return &bearerBuilder{
 		kms:         kms,
 		audienceKey: audienceKey,
 	}
 }
 
-func (b *signedPbBuilder) Build(ctx context.Context, audience string, t *AccessTokenData) ([]byte, error) {
+func (b *bearerBuilder) Build(ctx context.Context, audience string, t *AccessTokenData) ([]byte, error) {
 	signKey := kmssign.NewPrivateKey(b.kms, b.audienceKey(audience), crypto.SHA256)
 
 	exp, _ := ptypes.TimestampProto(t.ExpireTime)
@@ -45,6 +45,6 @@ func (b *signedPbBuilder) Build(ctx context.Context, audience string, t *AccessT
 	return tokenBytes, nil
 }
 
-func (b *signedPbBuilder) TokenType() string {
+func (b *bearerBuilder) TokenType() string {
 	return "Bearer"
 }

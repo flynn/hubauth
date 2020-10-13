@@ -123,9 +123,15 @@ func Sign(token []byte, rootPubKey sig.PublicKey, userKey *UserKeyPair) ([]byte,
 	return b.Serialize()
 }
 
+type VerifiedMetadata struct {
+	*Metadata
+	UserSignatureNonce     []byte
+	UserSignatureTimestamp time.Time
+}
+
 // Verify will verify the biscuit, the included audience and user signature, and return an error
 // when anything is invalid.
-func Verify(token []byte, rootPubKey sig.PublicKey, audience string, audienceKey *ecdsa.PublicKey) (*Metadata, error) {
+func Verify(token []byte, rootPubKey sig.PublicKey, audience string, audienceKey *ecdsa.PublicKey) (*VerifiedMetadata, error) {
 	b, err := biscuit.Unmarshal(token)
 	if err != nil {
 		return nil, fmt.Errorf("biscuit: failed to unmarshal: %w", err)
@@ -176,5 +182,13 @@ func Verify(token []byte, rootPubKey sig.PublicKey, audience string, audienceKey
 		return nil, fmt.Errorf("biscuit: failed to verify: %w", err)
 	}
 
-	return verifier.getMetadata()
+	metas, err := verifier.getMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("biscuit: failed to get metadata: %v", err)
+	}
+	return &VerifiedMetadata{
+		Metadata:               metas,
+		UserSignatureNonce:     userVerificationData.Nonce,
+		UserSignatureTimestamp: time.Time(userVerificationData.Timestamp),
+	}, nil
 }

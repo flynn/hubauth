@@ -26,7 +26,7 @@ type UserKeyPair struct {
 // signed with the private key matching the given userPubkey.
 func GenerateSignable(rootKey sig.Keypair, audience string, audienceKey *kmssign.Key, userPublicKey []byte, expireTime time.Time, m *Metadata) ([]byte, error) {
 	builder := &hubauthBuilder{
-		Builder: biscuit.NewBuilder(rand.Reader, rootKey),
+		biscuit.NewBuilder(rand.Reader, rootKey),
 	}
 
 	if err := builder.withAudienceSignature(audience, audienceKey); err != nil {

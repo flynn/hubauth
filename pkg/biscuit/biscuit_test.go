@@ -43,6 +43,8 @@ func TestBiscuit(t *testing.T) {
 		require.Equal(t, metas.UserID, res.UserID)
 		require.Equal(t, metas.UserEmail, res.UserEmail)
 		require.WithinDuration(t, metas.IssueTime, res.IssueTime, 1*time.Second)
+		require.NotEmpty(t, res.UserSignatureNonce)
+		require.NotEmpty(t, res.UserSignatureTimestamp)
 	})
 
 	t.Run("user sign with wrong key", func(t *testing.T) {

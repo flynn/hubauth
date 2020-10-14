@@ -109,7 +109,7 @@ Enable the APIs:
 Create OAUTH Consent screen:
 - Application type: `internal`
 - Application name: `hubauth`
-- Authorized domains: add the cloud run url for hubauth-ext **TODO: check this**
+- Authorized domains: add the cloud run url for hubauth-ext
 
 Create OAUTH Credential:
 - Type: `web application`

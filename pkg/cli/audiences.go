@@ -15,10 +15,7 @@ import (
 )
 
 type audiencesCmd struct {
-	List      audiencesListCmd      `kong:"cmd,help='list audiences',default:'1'"`
-	Create    audiencesCreateCmd    `kong:"cmd,help='create audience'"`
-	SetPolicy audiencesSetPolicyCmd `kong:"cmd,name='set-policy',help='set audience auth policy'"`
-	Key       audiencesKeyCmd       `kong:"cmd,help='get audience public key'"`
+	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
 }
 
 type audiencesListCmd struct{}
@@ -87,6 +84,30 @@ func (c *audiencesCreateCmd) Run(cfg *Config) error {
 	})
 }
 
+type audiencesUpdateClientsIDsCmd struct {
+	AudienceURL string   `kong:"required,name='audience-url',help='audience URL'"`
+	Add         []string `kong:"name='add',short='a',help='comma-separated client IDs to add'"`
+	Delete      []string `kong:"name='delete',short='d',help='comma-separated client IDs to delete'"`
+}
+
+func (c *audiencesUpdateClientsIDsCmd) Run(cfg *Config) error {
+	var muts []*hubauth.AudienceMutation
+	for _, clientID := range c.Add {
+		muts = append(muts, &hubauth.AudienceMutation{
+			Op:       hubauth.AudienceMutationOpAddClientID,
+			ClientID: clientID,
+		})
+	}
+	for _, clientID := range c.Delete {
+		muts = append(muts, &hubauth.AudienceMutation{
+			Op:       hubauth.AudienceMutationOpDeleteClientID,
+			ClientID: clientID,
+		})
+	}
+
+	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, muts)
+}
+
 type audiencesSetPolicyCmd struct {
 	AudienceURL string   `kong:"required,name='audience-url',help='audience URL'"`
 	Domain      string   `kong:"required,help='G Suite domain name'"`
@@ -101,6 +122,21 @@ func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
 			Domain:  c.Domain,
 			APIUser: c.APIUser,
 			Groups:  c.Groups,
+		},
+	}
+	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})
+}
+
+type audiencesDeletePolicyCmd struct {
+	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+	Domain      string `kong:"required,help='G Suite domain name'"`
+}
+
+func (c *audiencesDeletePolicyCmd) Run(cfg *Config) error {
+	mut := &hubauth.AudienceMutation{
+		Op: hubauth.AudienceMutationOpDeletePolicy,
+		Policy: hubauth.GoogleUserPolicy{
+			Domain: c.Domain,
 		},
 	}
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})

@@ -386,3 +386,58 @@ func TestAudienceKeyErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestAudienceDeletePolicyCmd(t *testing.T) {
+	cmd := &audiencesDeletePolicyCmd{
+		AudienceURL: "https://audience.url",
+		Domain:      "domain",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	muts := []*hubauth.AudienceMutation{
+		{
+			Op: hubauth.AudienceMutationOpDeletePolicy,
+			Policy: hubauth.GoogleUserPolicy{
+				Domain: cmd.Domain,
+			},
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceUpdateClientIDsCmd(t *testing.T) {
+	cmd := &audiencesUpdateClientsIDsCmd{
+		AudienceURL: "https://audience.url",
+		Add:         []string{"client1", "client2"},
+		Delete:      []string{"client3"},
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	muts := []*hubauth.AudienceMutation{
+		{
+			Op:       hubauth.AudienceMutationOpAddClientID,
+			ClientID: "client1",
+		},
+		{
+			Op:       hubauth.AudienceMutationOpAddClientID,
+			ClientID: "client2",
+		},
+		{
+			Op:       hubauth.AudienceMutationOpDeleteClientID,
+			ClientID: "client3",
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}

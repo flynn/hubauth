@@ -15,7 +15,13 @@ import (
 )
 
 type audiencesCmd struct {
+	List            audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
+	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
 	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
+	ListPolicies    audiencesListPolicicesCmd    `kong:"cmd,name='list-policies',help='list audience policies'"`
+	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
+	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
+	Key             audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
 }
 
 type audiencesListCmd struct{}
@@ -106,6 +112,26 @@ func (c *audiencesUpdateClientsIDsCmd) Run(cfg *Config) error {
 	}
 
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, muts)
+}
+
+type audiencesListPolicicesCmd struct {
+	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+}
+
+func (c *audiencesListPolicicesCmd) Run(cfg *Config) error {
+	audience, err := cfg.DB.GetAudience(context.Background(), c.AudienceURL)
+	if err != nil {
+		return err
+	}
+
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.AppendHeader(table.Row{"APIUser", "Domain", "Groups"})
+	for _, p := range audience.Policies {
+		t.AppendRow(table.Row{p.APIUser, p.Domain, p.Groups})
+	}
+	t.Render()
+	return nil
 }
 
 type audiencesSetPolicyCmd struct {

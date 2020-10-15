@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/flynn/biscuit-go/cookbook/signedbiscuit"
 	"github.com/flynn/biscuit-go/sig"
-	"github.com/flynn/hubauth/pkg/biscuit"
 	"github.com/flynn/hubauth/pkg/kmssign"
 )
 
@@ -36,14 +36,14 @@ func (b *biscuitBuilder) Build(ctx context.Context, audience string, t *AccessTo
 	}
 	audienceKey := kmssign.NewPrivateKey(b.kms, b.audienceKey(audience), crypto.SHA256)
 
-	meta := &biscuit.Metadata{
+	meta := &signedbiscuit.Metadata{
 		ClientID:  t.ClientID,
 		UserID:    t.UserID,
 		UserEmail: t.UserEmail,
 		IssueTime: t.IssueTime,
 	}
 
-	return biscuit.GenerateSignable(b.rootKeyPair, audience, audienceKey, t.UserPublicKey, t.ExpireTime, meta)
+	return signedbiscuit.GenerateSignable(b.rootKeyPair, audience, audienceKey, t.UserPublicKey, t.ExpireTime, meta)
 }
 
 func (b *biscuitBuilder) TokenType() string {

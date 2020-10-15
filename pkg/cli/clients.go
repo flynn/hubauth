@@ -13,8 +13,8 @@ import (
 type clientsCmd struct {
 	List   clientsListCmd   `kong:"cmd,help='list clients',default:'1'"`
 	Create clientsCreateCmd `kong:"cmd,help='create client'"`
-	Delete clientsDeleteCmd `kong:"cmd,help='delete client'"`
 	Update clientUpdateCmd  `kong:"cmd,help='update client'"`
+	Delete clientsDeleteCmd `kong:"cmd,help='delete client'"`
 }
 
 type clientsListCmd struct{}

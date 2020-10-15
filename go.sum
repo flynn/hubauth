@@ -73,8 +73,9 @@ github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymF
 github.com/envoyproxy/go-control-plane v0.9.1-0.20191026205805-5f8ba28d4473/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1mIlRU8Am5FuJP05cCM98=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
-github.com/flynn/biscuit-go v0.0.0-20201013094706-57a856cd63ea h1:QKWFyrvV0SKwUq4wYxdQZxVJASGsrmoGOolGpo/mjAU=
-github.com/flynn/biscuit-go v0.0.0-20201013094706-57a856cd63ea/go.mod h1:EMJZ3stAYtwaP763F5HcGjPjCnYu21V2TEsg/iw88I8=
+github.com/flynn/biscuit-go v0.0.0-20201015071554-9ea2c863efe8 h1:jz3x+pevBqZiO9m7M58fN/W8K0OyDUfchIsHE8XgZT0=
+github.com/flynn/biscuit-go v0.0.0-20201015081742-15d7d351f345 h1:ME6bm5dwn9V2DUlfXJqeN121B5nM7rDFqLFOATALqYE=
+github.com/flynn/biscuit-go v0.0.0-20201015081742-15d7d351f345/go.mod h1:Sj4oR2hNkrZH1cf3Cj5DPHc3Xq0o61GWeau6UkZR+3c=
 github.com/go-gl/glfw v0.0.0-20190409004039-e6da0acd62b1/go.mod h1:vR7hzQXu2zJy9AVAgeJqvqgH9Q5CA+iKCZ2gyEVpxRU=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20191125211704-12ad95a8df72/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20200222043503-6f7a984d4dc4/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=

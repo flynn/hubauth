@@ -14,6 +14,7 @@ type clientsCmd struct {
 	List   clientsListCmd   `kong:"cmd,help='list clients',default:'1'"`
 	Create clientsCreateCmd `kong:"cmd,help='create client'"`
 	Delete clientsDeleteCmd `kong:"cmd,help='delete client'"`
+	Update clientUpdateCmd  `kong:"cmd,help='update client'"`
 }
 
 type clientsListCmd struct{}
@@ -57,4 +58,34 @@ type clientsDeleteCmd struct {
 
 func (c *clientsDeleteCmd) Run(cfg *Config) error {
 	return cfg.DB.DeleteClient(context.Background(), c.ClientID)
+}
+
+type clientUpdateCmd struct {
+	ClientID           string   `kong:"required,name='client-id',help='the client to update'"`
+	RefreshTokenExpiry int      `kong:"optional,name='refresh-token-expiry',short='e',help='the refresh token expiry, in seconds'"`
+	AddRedirectURIs    []string `kong:"optional,name='add-redirect-uris',short='a',help='comma-separated redirect URIs to add'"`
+	DeleteRedirectURIs []string `kong:"optional,name='delete-redirect-uris',short='d',help='comma-separated redirect URIs to delete'"`
+}
+
+func (c *clientUpdateCmd) Run(cfg *Config) error {
+	var mut []*hubauth.ClientMutation
+	if c.RefreshTokenExpiry > 0 {
+		mut = append(mut, &hubauth.ClientMutation{
+			Op:                 hubauth.ClientMutationOpSetRefreshTokenExpiry,
+			RefreshTokenExpiry: time.Duration(c.RefreshTokenExpiry) * time.Second,
+		})
+	}
+	for _, uri := range c.AddRedirectURIs {
+		mut = append(mut, &hubauth.ClientMutation{
+			Op:          hubauth.ClientMutationOpAddRedirectURI,
+			RedirectURI: uri,
+		})
+	}
+	for _, uri := range c.DeleteRedirectURIs {
+		mut = append(mut, &hubauth.ClientMutation{
+			Op:          hubauth.ClientMutationOpDeleteRedirectURI,
+			RedirectURI: uri,
+		})
+	}
+	return cfg.DB.MutateClient(context.Background(), c.ClientID, mut)
 }

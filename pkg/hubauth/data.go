@@ -47,12 +47,14 @@ type ClientMutationOp byte
 const (
 	ClientMutationOpAddRedirectURI ClientMutationOp = iota
 	ClientMutationOpDeleteRedirectURI
+	ClientMutationOpSetRefreshTokenExpiry
 )
 
 type ClientMutation struct {
 	Op ClientMutationOp
 
-	RedirectURI string
+	RedirectURI        string
+	RefreshTokenExpiry time.Duration
 }
 
 type AudienceStore interface {

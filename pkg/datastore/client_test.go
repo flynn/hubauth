@@ -142,17 +142,66 @@ func TestClientMutate(t *testing.T) {
 			after:  &hubauth.Client{},
 		},
 		{
+			desc: "set refresh token expiry",
+			mut: []*hubauth.ClientMutation{
+				{Op: hubauth.ClientMutationOpSetRefreshTokenExpiry, RefreshTokenExpiry: time.Duration(5 * time.Minute)},
+			},
+			before: &hubauth.Client{},
+			after: &hubauth.Client{
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+		},
+		{
+			desc: "replace refresh token expiry",
+			mut: []*hubauth.ClientMutation{
+				{Op: hubauth.ClientMutationOpSetRefreshTokenExpiry, RefreshTokenExpiry: time.Duration(15 * time.Second)},
+			},
+			before: &hubauth.Client{
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+			after: &hubauth.Client{
+				RefreshTokenExpiry: 15 * time.Second,
+			},
+		},
+		{
+			desc: "negative refresh token expiry",
+			mut: []*hubauth.ClientMutation{
+				{Op: hubauth.ClientMutationOpSetRefreshTokenExpiry, RefreshTokenExpiry: time.Duration(-1 * time.Minute)},
+			},
+			before: &hubauth.Client{
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+			after: &hubauth.Client{
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+		},
+		{
+			desc: "zero refresh token expiry",
+			mut: []*hubauth.ClientMutation{
+				{Op: hubauth.ClientMutationOpSetRefreshTokenExpiry, RefreshTokenExpiry: time.Duration(0)},
+			},
+			before: &hubauth.Client{
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+			after: &hubauth.Client{
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+		},
+		{
 			desc: "multiple",
 			mut: []*hubauth.ClientMutation{
 				{Op: hubauth.ClientMutationOpAddRedirectURI, RedirectURI: "https://example.com"},
 				{Op: hubauth.ClientMutationOpAddRedirectURI, RedirectURI: "https://1.example.com"},
 				{Op: hubauth.ClientMutationOpDeleteRedirectURI, RedirectURI: "https://b.com"},
+				{Op: hubauth.ClientMutationOpSetRefreshTokenExpiry, RefreshTokenExpiry: 10 * time.Minute},
 			},
 			before: &hubauth.Client{
-				RedirectURIs: []string{"https://a.com", "https://b.com"},
+				RedirectURIs:       []string{"https://a.com", "https://b.com"},
+				RefreshTokenExpiry: 5 * time.Minute,
 			},
 			after: &hubauth.Client{
-				RedirectURIs: []string{"https://a.com", "https://1.example.com", "https://example.com"},
+				RedirectURIs:       []string{"https://a.com", "https://1.example.com", "https://example.com"},
+				RefreshTokenExpiry: 10 * time.Minute,
 			},
 		},
 	}

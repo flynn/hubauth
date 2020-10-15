@@ -122,6 +122,13 @@ func (s *service) MutateClient(ctx context.Context, id string, mut []*hubauth.Cl
 					client.RedirectURIs = client.RedirectURIs[:len(client.RedirectURIs)-1]
 					modified = true
 				}
+			case hubauth.ClientMutationOpSetRefreshTokenExpiry:
+				if m.RefreshTokenExpiry <= 0 {
+					continue
+				}
+
+				client.RefreshTokenExpiry = m.RefreshTokenExpiry
+				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown client mutation op %s", m.Op)
 			}

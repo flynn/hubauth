@@ -18,6 +18,7 @@ type audiencesCmd struct {
 	List            audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
 	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
 	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
+	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience'"`
 	ListPolicies    audiencesListPolicicesCmd    `kong:"cmd,name='list-policies',help='list audience policies'"`
 	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
 	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
@@ -112,6 +113,14 @@ func (c *audiencesUpdateClientsIDsCmd) Run(cfg *Config) error {
 	}
 
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, muts)
+}
+
+type audiencesDeleteCmd struct {
+	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+}
+
+func (c *audiencesDeleteCmd) Run(cfg *Config) error {
+	return cfg.DB.DeleteAudience(context.Background(), c.AudienceURL)
 }
 
 type audiencesListPolicicesCmd struct {

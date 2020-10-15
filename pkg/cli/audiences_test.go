@@ -60,6 +60,10 @@ func (m *mockAudienceDatastore) CreateAudience(ctx context.Context, audience *hu
 	args := m.Called(ctx, audience)
 	return args.Error(0)
 }
+func (m *mockAudienceDatastore) DeleteAudience(ctx context.Context, url string) error {
+	args := m.Called(ctx, url)
+	return args.Error(0)
+}
 func (m *mockAudienceDatastore) MutateAudience(ctx context.Context, url string, mut []*hubauth.AudienceMutation) error {
 	args := m.Called(ctx, url, mut)
 	return args.Error(0)
@@ -443,6 +447,19 @@ func TestAudienceUpdateClientIDsCmd(t *testing.T) {
 
 	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
 
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceDeleteCmd(t *testing.T) {
+	cmd := &audiencesDeleteCmd{
+		AudienceURL: "https://removed.audience.url",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("DeleteAudience", mock.Anything, cmd.AudienceURL).Return(nil)
 	require.NoError(t, cmd.Run(cfg))
 }
 

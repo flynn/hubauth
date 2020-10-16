@@ -421,9 +421,9 @@ func TestAudienceDeletePolicyCmd(t *testing.T) {
 
 func TestAudienceUpdateClientIDsCmd(t *testing.T) {
 	cmd := &audiencesUpdateClientsIDsCmd{
-		AudienceURL: "https://audience.url",
-		Add:         []string{"client1", "client2"},
-		Delete:      []string{"client3"},
+		AudienceURL:   "https://audience.url",
+		AddClients:    []string{"client1", "client2"},
+		DeleteClients: []string{"client3"},
 	}
 
 	cfg := &Config{
@@ -464,7 +464,7 @@ func TestAudienceDeleteCmd(t *testing.T) {
 }
 
 func TestAudienceListPolicies(t *testing.T) {
-	cmd := &audiencesListPolicicesCmd{
+	cmd := &audiencesListPoliciesCmd{
 		AudienceURL: "https://audience.url",
 	}
 
@@ -515,7 +515,7 @@ func TestAudienceListPolicies(t *testing.T) {
 }
 
 func TestAudienceListPoliciesError(t *testing.T) {
-	cmd := &audiencesListPolicicesCmd{
+	cmd := &audiencesListPoliciesCmd{
 		AudienceURL: "https://audience.url",
 	}
 

@@ -19,7 +19,7 @@ type audiencesCmd struct {
 	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
 	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
 	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience'"`
-	ListPolicies    audiencesListPolicicesCmd    `kong:"cmd,name='list-policies',help='list audience policies'"`
+	ListPolicies    audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
 	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
 	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
 	Key             audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
@@ -92,20 +92,20 @@ func (c *audiencesCreateCmd) Run(cfg *Config) error {
 }
 
 type audiencesUpdateClientsIDsCmd struct {
-	AudienceURL string   `kong:"required,name='audience-url',help='audience URL'"`
-	Add         []string `kong:"name='add',short='a',help='comma-separated client IDs to add'"`
-	Delete      []string `kong:"name='delete',short='d',help='comma-separated client IDs to delete'"`
+	AudienceURL   string   `kong:"required,name='audience-url',help='audience URL'"`
+	AddClients    []string `kong:"name='add-clients',short='a',help='comma-separated client IDs to add'"`
+	DeleteClients []string `kong:"name='delete-clients',short='d',help='comma-separated client IDs to delete'"`
 }
 
 func (c *audiencesUpdateClientsIDsCmd) Run(cfg *Config) error {
 	var muts []*hubauth.AudienceMutation
-	for _, clientID := range c.Add {
+	for _, clientID := range c.AddClients {
 		muts = append(muts, &hubauth.AudienceMutation{
 			Op:       hubauth.AudienceMutationOpAddClientID,
 			ClientID: clientID,
 		})
 	}
-	for _, clientID := range c.Delete {
+	for _, clientID := range c.DeleteClients {
 		muts = append(muts, &hubauth.AudienceMutation{
 			Op:       hubauth.AudienceMutationOpDeleteClientID,
 			ClientID: clientID,
@@ -123,11 +123,11 @@ func (c *audiencesDeleteCmd) Run(cfg *Config) error {
 	return cfg.DB.DeleteAudience(context.Background(), c.AudienceURL)
 }
 
-type audiencesListPolicicesCmd struct {
+type audiencesListPoliciesCmd struct {
 	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
 }
 
-func (c *audiencesListPolicicesCmd) Run(cfg *Config) error {
+func (c *audiencesListPoliciesCmd) Run(cfg *Config) error {
 	audience, err := cfg.DB.GetAudience(context.Background(), c.AudienceURL)
 	if err != nil {
 		return err

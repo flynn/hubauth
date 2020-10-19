@@ -17,6 +17,7 @@ import (
 type audiencesCmd struct {
 	List            audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
 	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
+	UpdateType      audienceUpdateTypeCmd        `kong:"cmd,name='update-type',help='change audience type'"`
 	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
 	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience and all its keys'"`
 	ListPolicies    audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
@@ -29,15 +30,15 @@ type audiencesCmd struct {
 type audiencesListCmd struct{}
 
 func (c *audiencesListCmd) Run(cfg *Config) error {
-	clients, err := cfg.DB.ListAudiences(context.Background())
+	audiences, err := cfg.DB.ListAudiences(context.Background())
 	if err != nil {
 		return err
 	}
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"URL", "ClientIDs", "CreateTime", "UpdateTime"})
-	for _, c := range clients {
-		t.AppendRow(table.Row{c.URL, c.ClientIDs, c.CreateTime, c.UpdateTime})
+	t.AppendHeader(table.Row{"URL", "Type", "ClientIDs", "CreateTime", "UpdateTime"})
+	for _, audience := range audiences {
+		t.AppendRow(table.Row{audience.URL, audience.Type, audience.ClientIDs, audience.CreateTime, audience.UpdateTime})
 	}
 	t.Render()
 	return nil
@@ -45,6 +46,7 @@ func (c *audiencesListCmd) Run(cfg *Config) error {
 
 type audiencesCreateCmd struct {
 	URL         string   `kong:"required,name='audience-url',help='audience URL'"`
+	Type        string   `kong:"name='audience-type',default='flynn-controller',help='audience Type'"`
 	ClientIDs   []string `kong:"name='client-ids',help='comma-separated client IDs'"`
 	KMSLocation string   `kong:"name='kms-location',default='us',help='KMS keyring location'"`
 	KMSKeyring  string   `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
@@ -88,8 +90,22 @@ func (c *audiencesCreateCmd) Run(cfg *Config) error {
 
 	return cfg.DB.CreateAudience(ctx, &hubauth.Audience{
 		URL:       "https://" + u.Host,
+		Type:      c.Type,
 		ClientIDs: c.ClientIDs,
 	})
+}
+
+type audienceUpdateTypeCmd struct {
+	AudienceURL  string `kong:"required,name='audience-url',help='audience URL'"`
+	AudienceType string `kong:"required,name='audience-type',help='audience type'"`
+}
+
+func (c *audienceUpdateTypeCmd) Run(cfg *Config) error {
+	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{{
+		Op:   hubauth.AudienceMutationSetType,
+		Type: c.AudienceType,
+	}})
+
 }
 
 type audiencesUpdateClientsIDsCmd struct {

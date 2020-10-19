@@ -165,6 +165,12 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					aud.Policies = aud.Policies[:len(aud.Policies)-1]
 					modified = true
 				}
+			case hubauth.AudienceMutationSetType:
+				if aud.Type == m.Type {
+					continue
+				}
+				aud.Type = m.Type
+				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)
 			}

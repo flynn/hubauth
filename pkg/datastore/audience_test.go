@@ -344,6 +344,21 @@ func TestAudienceMutate(t *testing.T) {
 			after:  &hubauth.Audience{},
 		},
 		{
+			desc: "update type",
+			mut: []*hubauth.AudienceMutation{
+				{
+					Op:   hubauth.AudienceMutationSetType,
+					Type: "new-type",
+				},
+			},
+			before: &hubauth.Audience{
+				Type: "flynn-controller",
+			},
+			after: &hubauth.Audience{
+				Type: "new-type",
+			},
+		},
+		{
 			desc: "multiple",
 			mut: []*hubauth.AudienceMutation{
 				{Op: hubauth.AudienceMutationOpAddClientID, ClientID: "c"},

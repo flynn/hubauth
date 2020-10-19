@@ -69,6 +69,11 @@ func (m *mockAudienceDatastore) MutateAudience(ctx context.Context, url string, 
 	return args.Error(0)
 }
 
+func (m *mockAudienceDatastore) MutateAudiencePolicy(ctx context.Context, url string, domain string, mut []*hubauth.AudiencePolicyMutation) error {
+	args := m.Called(ctx, url, domain, mut)
+	return args.Error(0)
+}
+
 func TestAudiencesListCmd(t *testing.T) {
 	cmd := &audiencesListCmd{}
 	cfg := &Config{
@@ -526,4 +531,45 @@ func TestAudienceListPoliciesError(t *testing.T) {
 	expectedErr := errors.New("audience list error")
 	cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.AudienceURL).Return(&hubauth.Audience{}, expectedErr)
 	require.Equal(t, expectedErr, cmd.Run(cfg))
+}
+
+func TestAudienceUpdatePolicyCmd(t *testing.T) {
+	cmd := &audiencesUpdatePolicyCmd{
+		AudienceURL:  "https://modified.audience.url",
+		Domain:       "policy.domain",
+		APIUser:      "user1",
+		AddGroups:    []string{"grp1", "grp2"},
+		DeleteGroups: []string{"grp3", "grp4"},
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	muts := []*hubauth.AudiencePolicyMutation{
+		{
+			Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+			Group: "grp1",
+		},
+		{
+			Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+			Group: "grp2",
+		},
+		{
+			Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+			Group: "grp3",
+		},
+		{
+			Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+			Group: "grp4",
+		},
+		{
+			Op:      hubauth.AudiencePolicyMutationOpSetAPIUser,
+			APIUser: "user1",
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudiencePolicy", mock.Anything, cmd.AudienceURL, cmd.Domain, muts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
 }

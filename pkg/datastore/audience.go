@@ -182,6 +182,83 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 	return nil
 }
 
+func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain string, mut []*hubauth.AudiencePolicyMutation) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.MutateAudiencePolicy")
+	span.AddAttributes(
+		trace.StringAttribute("audience_url", url),
+		trace.StringAttribute("audience_policy_domain", domain),
+		trace.Int64Attribute("audience_policy_mutation_count", int64(len(mut))),
+	)
+	defer span.End()
+
+	k := audienceKey(url)
+	_, err := s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
+		aud := &audience{}
+		if err := tx.Get(k, aud); err != nil {
+			if err == datastore.ErrNoSuchEntity {
+				err = hubauth.ErrNotFound
+			}
+			return fmt.Errorf("datastore: error fetching audience %s: %w", url, err)
+		}
+
+		var policy *googleUserPolicy
+		for i := range aud.Policies {
+			if aud.Policies[i].Domain == domain {
+				policy = &aud.Policies[i]
+				break
+			}
+		}
+		if policy == nil {
+			return hubauth.ErrNotFound
+		}
+
+		modified := false
+	outer:
+		for _, m := range mut {
+			switch m.Op {
+			case hubauth.AudiencePolicyMutationOpAddGroup:
+				groups := strings.Split(policy.Groups, ",")
+				for _, g := range groups {
+					if g == m.Group {
+						continue outer
+					}
+				}
+				policy.Groups = strings.Join(append(groups, m.Group), ",")
+				modified = true
+			case hubauth.AudiencePolicyMutationOpDeleteGroup:
+				groups := strings.Split(policy.Groups, ",")
+				for i, g := range groups {
+					if g != m.Group {
+						continue
+					}
+					groups[i] = groups[len(groups)-1]
+					groups = groups[:len(groups)-1]
+				}
+				policy.Groups = strings.Join(groups, ",")
+				modified = true
+			case hubauth.AudiencePolicyMutationOpSetAPIUser:
+				if policy.APIUser == m.APIUser {
+					continue
+				}
+				policy.APIUser = m.APIUser
+				modified = true
+			default:
+				return fmt.Errorf("datastore: unknown audience policy mutation op %s", m.Op)
+			}
+		}
+		if !modified {
+			return nil
+		}
+		aud.UpdateTime = time.Now()
+		_, err := tx.Put(k, aud)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("datastore: error mutating audience %s: %w", url, err)
+	}
+	return nil
+}
+
 func (s *service) ListAudiences(ctx context.Context) ([]*hubauth.Audience, error) {
 	ctx, span := trace.StartSpan(ctx, "datastore.ListAudiences")
 	defer span.End()

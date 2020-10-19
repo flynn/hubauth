@@ -135,9 +135,9 @@ func (c *audiencesListPoliciesCmd) Run(cfg *Config) error {
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"APIUser", "Domain", "Groups"})
+	t.AppendHeader(table.Row{"Domain", "APIUser", "Groups"})
 	for _, p := range audience.Policies {
-		t.AppendRow(table.Row{p.APIUser, p.Domain, p.Groups})
+		t.AppendRow(table.Row{p.Domain, p.APIUser, p.Groups})
 	}
 	t.Render()
 	return nil

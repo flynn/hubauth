@@ -505,9 +505,9 @@ func TestAudienceListPolicies(t *testing.T) {
 	expectedBuf := new(bytes.Buffer)
 	tw := table.NewWriter()
 	tw.SetOutputMirror(expectedBuf)
-	tw.AppendHeader(table.Row{"APIUser", "Domain", "Groups"})
+	tw.AppendHeader(table.Row{"Domain", "APIUser", "Groups"})
 	for _, p := range audience.Policies {
-		tw.AppendRow(table.Row{p.APIUser, p.Domain, p.Groups})
+		tw.AppendRow(table.Row{p.Domain, p.APIUser, p.Groups})
 	}
 	tw.Render()
 

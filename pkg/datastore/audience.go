@@ -22,6 +22,7 @@ func buildAudience(c *hubauth.Audience) *audience {
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
+		KeyVersion: c.KeyVersion,
 		Policies:   policies,
 		CreateTime: now,
 		UpdateTime: now,
@@ -34,6 +35,7 @@ type audience struct {
 	Type       string
 	ClientIDs  []string
 	Policies   []googleUserPolicy `datastore:",flatten"`
+	KeyVersion int
 	CreateTime time.Time
 	UpdateTime time.Time
 }
@@ -71,6 +73,7 @@ func (c *audience) Export() *hubauth.Audience {
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
+		KeyVersion: c.KeyVersion,
 		Policies:   policies,
 		CreateTime: c.CreateTime,
 		UpdateTime: c.UpdateTime,

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/flynn/hubauth/pkg/hubauth"
 	gax "github.com/googleapis/gax-go/v2"
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
@@ -18,15 +19,37 @@ import (
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
-type AudienceKeyNamer func(audience string) string
+type AudienceKeyNamer func(audience string) (string, error)
 
-func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) string {
-	return func(aud string) string {
+// AudienceKeyNameFunc returns the GCP KMS resource name of the audience key, fixed at version 1.
+func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) (string, error) {
+	return func(aud string) (string, error) {
 		u, err := url.Parse(aud)
 		if err != nil {
-			return ""
+			return "", err
 		}
-		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1))
+		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1)), nil
+	}
+}
+
+// VersionnedAudienceKeyNameFunc returns the GCP KMS resource name of the audience key, fetching the version to use from the db.
+func VersionnedAudienceKeyNameFunc(db hubauth.AudienceStore, projectID, location, keyRing string) func(string) (string, error) {
+	return func(aud string) (string, error) {
+		audience, err := db.GetAudience(context.Background(), aud)
+		if err != nil {
+			return "", err
+		}
+
+		keyVersion := audience.KeyVersion
+		if keyVersion <= 0 {
+			keyVersion = 1
+		}
+
+		u, err := url.Parse(aud)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%d", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1), keyVersion), nil
 	}
 }
 

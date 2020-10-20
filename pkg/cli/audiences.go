@@ -15,10 +15,14 @@ import (
 )
 
 type audiencesCmd struct {
-	List      audiencesListCmd      `kong:"cmd,help='list audiences',default:'1'"`
-	Create    audiencesCreateCmd    `kong:"cmd,help='create audience'"`
-	SetPolicy audiencesSetPolicyCmd `kong:"cmd,name='set-policy',help='set audience auth policy'"`
-	Key       audiencesKeyCmd       `kong:"cmd,help='get audience public key'"`
+	List            audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
+	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
+	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
+	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience'"`
+	ListPolicies    audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
+	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
+	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
+	Key             audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
 }
 
 type audiencesListCmd struct{}
@@ -87,6 +91,58 @@ func (c *audiencesCreateCmd) Run(cfg *Config) error {
 	})
 }
 
+type audiencesUpdateClientsIDsCmd struct {
+	AudienceURL   string   `kong:"required,name='audience-url',help='audience URL'"`
+	AddClients    []string `kong:"name='add-clients',short='a',help='comma-separated client IDs to add'"`
+	DeleteClients []string `kong:"name='delete-clients',short='d',help='comma-separated client IDs to delete'"`
+}
+
+func (c *audiencesUpdateClientsIDsCmd) Run(cfg *Config) error {
+	var muts []*hubauth.AudienceMutation
+	for _, clientID := range c.AddClients {
+		muts = append(muts, &hubauth.AudienceMutation{
+			Op:       hubauth.AudienceMutationOpAddClientID,
+			ClientID: clientID,
+		})
+	}
+	for _, clientID := range c.DeleteClients {
+		muts = append(muts, &hubauth.AudienceMutation{
+			Op:       hubauth.AudienceMutationOpDeleteClientID,
+			ClientID: clientID,
+		})
+	}
+
+	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, muts)
+}
+
+type audiencesDeleteCmd struct {
+	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+}
+
+func (c *audiencesDeleteCmd) Run(cfg *Config) error {
+	return cfg.DB.DeleteAudience(context.Background(), c.AudienceURL)
+}
+
+type audiencesListPoliciesCmd struct {
+	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+}
+
+func (c *audiencesListPoliciesCmd) Run(cfg *Config) error {
+	audience, err := cfg.DB.GetAudience(context.Background(), c.AudienceURL)
+	if err != nil {
+		return err
+	}
+
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.AppendHeader(table.Row{"APIUser", "Domain", "Groups"})
+	for _, p := range audience.Policies {
+		t.AppendRow(table.Row{p.APIUser, p.Domain, p.Groups})
+	}
+	t.Render()
+	return nil
+}
+
 type audiencesSetPolicyCmd struct {
 	AudienceURL string   `kong:"required,name='audience-url',help='audience URL'"`
 	Domain      string   `kong:"required,help='G Suite domain name'"`
@@ -101,6 +157,21 @@ func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
 			Domain:  c.Domain,
 			APIUser: c.APIUser,
 			Groups:  c.Groups,
+		},
+	}
+	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})
+}
+
+type audiencesDeletePolicyCmd struct {
+	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+	Domain      string `kong:"required,help='G Suite domain name'"`
+}
+
+func (c *audiencesDeletePolicyCmd) Run(cfg *Config) error {
+	mut := &hubauth.AudienceMutation{
+		Op: hubauth.AudienceMutationOpDeletePolicy,
+		Policy: hubauth.GoogleUserPolicy{
+			Domain: c.Domain,
 		},
 	}
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})

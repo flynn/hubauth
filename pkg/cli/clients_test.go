@@ -32,6 +32,10 @@ func (m *mockClientDatastore) DeleteClient(ctx context.Context, id string) error
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
+func (m *mockClientDatastore) MutateClient(ctx context.Context, id string, mut []*hubauth.ClientMutation) error {
+	args := m.Called(ctx, id, mut)
+	return args.Error(0)
+}
 
 func TestClientsListCmd(t *testing.T) {
 	cmd := clientsListCmd{}
@@ -192,4 +196,60 @@ func TestClientDeleteErrors(t *testing.T) {
 	cfg.DB.(*mockClientDatastore).On("DeleteClient", mock.Anything, mock.Anything).Return(expectedError)
 
 	require.Equal(t, expectedError, cmd.Run(cfg))
+}
+
+func TestClientUpdateCmd(t *testing.T) {
+	t.Run("empty mutations", func(t *testing.T) {
+		cmd := clientUpdateCmd{
+			ClientID: "clientID",
+		}
+		cfg := &Config{DB: &mockClientDatastore{}}
+		var expectedMutations []*hubauth.ClientMutation
+		cfg.DB.(*mockClientDatastore).On("MutateClient", mock.Anything, "clientID", expectedMutations).Return(nil)
+		require.Equal(t, nil, cmd.Run(cfg))
+	})
+	t.Run("set refresh token expiry", func(t *testing.T) {
+		cmd := clientUpdateCmd{
+			ClientID:           "clientID",
+			RefreshTokenExpiry: 300,
+		}
+		cfg := &Config{DB: &mockClientDatastore{}}
+		expectedMutations := []*hubauth.ClientMutation{
+			&hubauth.ClientMutation{
+				Op:                 hubauth.ClientMutationOpSetRefreshTokenExpiry,
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+		}
+		cfg.DB.(*mockClientDatastore).On("MutateClient", mock.Anything, "clientID", expectedMutations).Return(nil)
+		require.Equal(t, nil, cmd.Run(cfg))
+	})
+	t.Run("multiple mutations", func(t *testing.T) {
+		cmd := clientUpdateCmd{
+			ClientID:           "clientID",
+			RefreshTokenExpiry: 300,
+			AddRedirectURIs:    []string{"http://localhost:1234", "http://localhost:5678"},
+			DeleteRedirectURIs: []string{"http://removed-domain:1234"},
+		}
+		cfg := &Config{DB: &mockClientDatastore{}}
+		expectedMutations := []*hubauth.ClientMutation{
+			&hubauth.ClientMutation{
+				Op:                 hubauth.ClientMutationOpSetRefreshTokenExpiry,
+				RefreshTokenExpiry: 5 * time.Minute,
+			},
+			&hubauth.ClientMutation{
+				Op:          hubauth.ClientMutationOpAddRedirectURI,
+				RedirectURI: "http://localhost:1234",
+			},
+			&hubauth.ClientMutation{
+				Op:          hubauth.ClientMutationOpAddRedirectURI,
+				RedirectURI: "http://localhost:5678",
+			},
+			&hubauth.ClientMutation{
+				Op:          hubauth.ClientMutationOpDeleteRedirectURI,
+				RedirectURI: "http://removed-domain:1234",
+			},
+		}
+		cfg.DB.(*mockClientDatastore).On("MutateClient", mock.Anything, "clientID", expectedMutations).Return(nil)
+		require.Equal(t, nil, cmd.Run(cfg))
+	})
 }

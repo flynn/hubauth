@@ -52,8 +52,16 @@ func (m *mockAudienceDatastore) GetClient(ctx context.Context, id string) (*huba
 	return args.Get(0).(*hubauth.Client), args.Error(1)
 
 }
+func (m *mockAudienceDatastore) GetAudience(ctx context.Context, url string) (*hubauth.Audience, error) {
+	args := m.Called(ctx, url)
+	return args.Get(0).(*hubauth.Audience), args.Error(1)
+}
 func (m *mockAudienceDatastore) CreateAudience(ctx context.Context, audience *hubauth.Audience) error {
 	args := m.Called(ctx, audience)
+	return args.Error(0)
+}
+func (m *mockAudienceDatastore) DeleteAudience(ctx context.Context, url string) error {
+	args := m.Called(ctx, url)
 	return args.Error(0)
 }
 func (m *mockAudienceDatastore) MutateAudience(ctx context.Context, url string, mut []*hubauth.AudienceMutation) error {
@@ -385,4 +393,137 @@ func TestAudienceKeyErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAudienceDeletePolicyCmd(t *testing.T) {
+	cmd := &audiencesDeletePolicyCmd{
+		AudienceURL: "https://audience.url",
+		Domain:      "domain",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	muts := []*hubauth.AudienceMutation{
+		{
+			Op: hubauth.AudienceMutationOpDeletePolicy,
+			Policy: hubauth.GoogleUserPolicy{
+				Domain: cmd.Domain,
+			},
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceUpdateClientIDsCmd(t *testing.T) {
+	cmd := &audiencesUpdateClientsIDsCmd{
+		AudienceURL:   "https://audience.url",
+		AddClients:    []string{"client1", "client2"},
+		DeleteClients: []string{"client3"},
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	muts := []*hubauth.AudienceMutation{
+		{
+			Op:       hubauth.AudienceMutationOpAddClientID,
+			ClientID: "client1",
+		},
+		{
+			Op:       hubauth.AudienceMutationOpAddClientID,
+			ClientID: "client2",
+		},
+		{
+			Op:       hubauth.AudienceMutationOpDeleteClientID,
+			ClientID: "client3",
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceDeleteCmd(t *testing.T) {
+	cmd := &audiencesDeleteCmd{
+		AudienceURL: "https://removed.audience.url",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("DeleteAudience", mock.Anything, cmd.AudienceURL).Return(nil)
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceListPolicies(t *testing.T) {
+	cmd := &audiencesListPoliciesCmd{
+		AudienceURL: "https://audience.url",
+	}
+
+	audience := &hubauth.Audience{
+		Name: "https://audience.url",
+		Policies: []*hubauth.GoogleUserPolicy{
+			{
+				APIUser: "user1",
+				Domain:  "domain1",
+				Groups:  []string{"grp1", "grp2"},
+			},
+			{
+				APIUser: "user2",
+				Domain:  "domain2",
+				Groups:  []string{"grp3"},
+			},
+		},
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.AudienceURL).Return(audience, nil)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	require.NoError(t, cmd.Run(cfg))
+
+	os.Stdout = origStdout
+	buf := make([]byte, 2048)
+	n, err := r.Read(buf)
+	require.NoError(t, err)
+
+	expectedBuf := new(bytes.Buffer)
+	tw := table.NewWriter()
+	tw.SetOutputMirror(expectedBuf)
+	tw.AppendHeader(table.Row{"APIUser", "Domain", "Groups"})
+	for _, p := range audience.Policies {
+		tw.AppendRow(table.Row{p.APIUser, p.Domain, p.Groups})
+	}
+	tw.Render()
+
+	require.Equal(t, expectedBuf.String(), string(buf[:n]))
+}
+
+func TestAudienceListPoliciesError(t *testing.T) {
+	cmd := &audiencesListPoliciesCmd{
+		AudienceURL: "https://audience.url",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	expectedErr := errors.New("audience list error")
+	cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.AudienceURL).Return(&hubauth.Audience{}, expectedErr)
+	require.Equal(t, expectedErr, cmd.Run(cfg))
 }

@@ -18,7 +18,7 @@ type audiencesCmd struct {
 	List            audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
 	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
 	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
-	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience'"`
+	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience and all its keys'"`
 	ListPolicies    audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
 	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
 	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
@@ -117,9 +117,37 @@ func (c *audiencesUpdateClientsIDsCmd) Run(cfg *Config) error {
 
 type audiencesDeleteCmd struct {
 	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
+	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
 }
 
 func (c *audiencesDeleteCmd) Run(cfg *Config) error {
+	u, err := url.Parse(c.AudienceURL)
+	if err != nil {
+		return fmt.Errorf("error parsing audience URL: %w", err)
+	}
+
+	versions, err := cfg.KMS.ListCryptoKeyVersions(context.Background(), &kms.ListCryptoKeyVersionsRequest{
+		Parent: fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s",
+			cfg.ProjectID,
+			c.KMSLocation,
+			c.KMSKeyring,
+			strings.Replace(u.Host, ".", "_", -1),
+		),
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to retrieve crypto key versions: %w", err)
+	}
+
+	for _, version := range versions {
+		if _, err = cfg.KMS.DestroyCryptoKeyVersion(context.Background(), &kms.DestroyCryptoKeyVersionRequest{
+			Name: version.Name,
+		}); err != nil {
+			return fmt.Errorf("failed to delete crypto key version %s: %v", version.Name, err)
+		}
+	}
+
 	return cfg.DB.DeleteAudience(context.Background(), c.AudienceURL)
 }
 

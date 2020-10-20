@@ -72,7 +72,9 @@ func main() {
 		return string(result.Payload.Data)
 	}
 
-	audienceKeyNamer := kmssign.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING"))
+	db := datastore.New(dsClient)
+
+	audienceKeyNamer := kmssign.VersionnedAudienceKeyNameFunc(db, os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING"))
 
 	var accessTokenBuilder token.AccessTokenBuilder
 	var rootPubKey []byte
@@ -98,7 +100,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
 		Propagation: &propagation.HTTPFormat{},
 		Handler: httpapi.New(httpapi.Config{
-			IdP: idp.New(datastore.New(dsClient),
+			IdP: idp.New(db,
 				google.New(
 					os.Getenv("RP_GOOGLE_CLIENT_ID"),
 					os.Getenv("RP_GOOGLE_CLIENT_SECRET"),

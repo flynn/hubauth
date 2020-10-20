@@ -18,7 +18,7 @@ import (
 
 func TestBiscuitBuilder(t *testing.T) {
 	audience := "https://audience.url"
-	audienceKeyName := audienceKeyNamer(audience)
+	audienceKeyName, _ := audienceKeyNamer(audience)
 	kmsClient := kmssim.NewClient([]string{audienceKeyName})
 	rootKeyPair := sig.GenerateKeypair(rand.Reader)
 

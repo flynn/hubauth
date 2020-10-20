@@ -14,13 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func audienceKeyNamer(s string) string {
-	return fmt.Sprintf("%s_named", s)
+func audienceKeyNamer(s string) (string, error) {
+	return fmt.Sprintf("%s_named", s), nil
 }
 
 func TestSignedPBBuilder(t *testing.T) {
 	audienceName := "audience_url"
-	audienceKeyName := audienceKeyNamer(audienceName)
+	audienceKeyName, _ := audienceKeyNamer(audienceName)
 	kms := kmssim.NewClient([]string{audienceKeyName})
 
 	builder := NewBearerBuilder(kms, audienceKeyNamer)

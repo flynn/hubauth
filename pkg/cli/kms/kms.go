@@ -13,7 +13,7 @@ import (
 type Client interface {
 	CreateCryptoKey(context.Context, *kmspb.CreateCryptoKeyRequest, ...gax.CallOption) (*kmspb.CryptoKey, error)
 	GetPublicKey(context.Context, *kmspb.GetPublicKeyRequest, ...gax.CallOption) (*kmspb.PublicKey, error)
-	// ListCryptoKeyVersions differ from google KMS client interface to get ride of their *kms.CryptoKeyVersionIterator
+	// ListCryptoKeyVersions differs from google KMS client interface to get rid of their *kms.CryptoKeyVersionIterator
 	ListCryptoKeyVersions(context.Context, *kmspb.ListCryptoKeyVersionsRequest, ...gax.CallOption) ([]*kmspb.CryptoKeyVersion, error)
 	DestroyCryptoKeyVersion(context.Context, *kmspb.DestroyCryptoKeyVersionRequest, ...gax.CallOption) (*kmspb.CryptoKeyVersion, error)
 }

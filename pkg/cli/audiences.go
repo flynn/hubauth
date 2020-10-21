@@ -162,11 +162,15 @@ func (c *audiencesDeleteCmd) Run(cfg *Config) error {
 		if _, err = cfg.KMS.DestroyCryptoKeyVersion(context.Background(), &kms.DestroyCryptoKeyVersionRequest{
 			Name: version.Name,
 		}); err != nil {
-			return fmt.Errorf("failed to delete crypto key version %s: %v", version.Name, err)
+			return fmt.Errorf("failed to delete crypto key version %s: %w", version.Name, err)
 		}
 	}
 
-	return cfg.DB.DeleteAudience(context.Background(), c.AudienceURL)
+	if err := cfg.DB.DeleteAudience(context.Background(), c.AudienceURL); err != nil {
+		return fmt.Errorf("failed to delete audience: %w", err)
+	}
+
+	return nil
 }
 
 type audiencesListPoliciesCmd struct {

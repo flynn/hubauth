@@ -383,7 +383,6 @@ func TestAudienceKeyCmd(t *testing.T) {
 func TestAudienceKeyErrors(t *testing.T) {
 	testCases := []struct {
 		Desc            string
-		GetAudienceErr  error
 		GetPublicKeyErr error
 		ExpectedErr     error
 		AudienceURL     string
@@ -515,6 +514,67 @@ func TestAudienceDeleteCmd(t *testing.T) {
 
 	cfg.DB.(*mockAudienceDatastore).On("DeleteAudience", mock.Anything, cmd.AudienceURL).Return(nil)
 	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceDeleteErrors(t *testing.T) {
+	testCases := []struct {
+		Desc                       string
+		AudienceURL                string
+		ListCryptoKeyVersionsErr   error
+		DestroyCryptoKeyVersionErr error
+		DeleteAudienceErr          error
+		ExpectedErr                error
+	}{
+		{
+			Desc:        "audience url fail to parse",
+			AudienceURL: "://audience.url",
+		},
+		{
+			Desc:                     "fail to list keys",
+			AudienceURL:              "https://audience.url",
+			ListCryptoKeyVersionsErr: errors.New("list key versions error"),
+			ExpectedErr:              errors.New("list key versions error"),
+		},
+		{
+			Desc:                       "fail to destroy key",
+			AudienceURL:                "https://audience.url",
+			DestroyCryptoKeyVersionErr: errors.New("destroy key error"),
+			ExpectedErr:                errors.New("destroy key error"),
+		},
+		{
+			Desc:              "fail to delete audience",
+			AudienceURL:       "https://audience.url",
+			DeleteAudienceErr: errors.New("delete audience error"),
+			ExpectedErr:       errors.New("delete audience error"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			cmd := &audiencesDeleteCmd{
+				AudienceURL: testCase.AudienceURL,
+				KMSLocation: "global",
+				KMSKeyring:  "keyring",
+			}
+
+			cfg := &Config{
+				DB:        &mockAudienceDatastore{},
+				KMS:       &mockKMS{},
+				ProjectID: "projectID",
+			}
+
+			cfg.KMS.(*mockKMS).On("ListCryptoKeyVersions", mock.Anything, mock.Anything).Return([]*kmspb.CryptoKeyVersion{{Name: "v1"}}, testCase.ListCryptoKeyVersionsErr)
+			cfg.KMS.(*mockKMS).On("DestroyCryptoKeyVersion", mock.Anything, mock.Anything).Return(&kmspb.CryptoKeyVersion{}, testCase.DestroyCryptoKeyVersionErr)
+
+			cfg.DB.(*mockAudienceDatastore).On("DeleteAudience", mock.Anything, cmd.AudienceURL).Return(testCase.DeleteAudienceErr)
+			err := cmd.Run(cfg)
+			if testCase.ExpectedErr != nil {
+				require.Equal(t, testCase.ExpectedErr, errors.Unwrap(err))
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }
 
 func TestAudienceListPolicies(t *testing.T) {

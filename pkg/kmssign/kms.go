@@ -35,21 +35,22 @@ func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) (stri
 // VersionnedAudienceKeyNameFunc returns the GCP KMS resource name of the audience key, fetching the version to use from the db.
 func VersionnedAudienceKeyNameFunc(db hubauth.AudienceStore, projectID, location, keyRing string) func(string) (string, error) {
 	return func(aud string) (string, error) {
+		u, err := url.Parse(aud)
+		if err != nil {
+			return "", err
+		}
+
 		audience, err := db.GetAudience(context.Background(), aud)
 		if err != nil {
 			return "", err
 		}
 
-		keyVersion := audience.KeyVersion
-		if keyVersion <= 0 {
-			keyVersion = 1
+		name := audience.KeyVersion
+		if name == "" {
+			name = fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1))
 		}
 
-		u, err := url.Parse(aud)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/%d", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1), keyVersion), nil
+		return name, nil
 	}
 }
 

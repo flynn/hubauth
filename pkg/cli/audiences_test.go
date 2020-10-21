@@ -163,7 +163,7 @@ func TestAudienceCreateCmd(t *testing.T) {
 	cmd := &audiencesCreateCmd{
 		URL:         "https://audience.url.com",
 		ClientIDs:   []string{"client1", "client2"},
-		Type:        "flynn-controller",
+		Type:        "flynn_controller",
 		KMSLocation: "kmsLocation",
 		KMSKeyring:  "kmsKeyring",
 	}
@@ -189,7 +189,7 @@ func TestAudienceCreateCmd(t *testing.T) {
 
 	cfg.DB.(*mockAudienceDatastore).On("CreateAudience", mock.Anything, &hubauth.Audience{
 		URL:       "https://audience.url.com",
-		Type:      "flynn-controller",
+		Type:      "flynn_controller",
 		ClientIDs: cmd.ClientIDs,
 	}).Return(nil)
 

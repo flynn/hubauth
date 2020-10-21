@@ -46,7 +46,7 @@ func (c *audiencesListCmd) Run(cfg *Config) error {
 
 type audiencesCreateCmd struct {
 	URL         string   `kong:"required,name='audience-url',help='audience URL'"`
-	Type        string   `kong:"name='audience-type',default='flynn-controller',help='audience Type'"`
+	Type        string   `kong:"name='audience-type',default='flynn_controller',help='audience Type'"`
 	ClientIDs   []string `kong:"name='client-ids',help='comma-separated client IDs'"`
 	KMSLocation string   `kong:"name='kms-location',default='us',help='KMS keyring location'"`
 	KMSKeyring  string   `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`

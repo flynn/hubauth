@@ -352,7 +352,7 @@ func TestAudienceMutate(t *testing.T) {
 				},
 			},
 			before: &hubauth.Audience{
-				Type: "flynn-controller",
+				Type: "flynn_controller",
 			},
 			after: &hubauth.Audience{
 				Type: "new-type",

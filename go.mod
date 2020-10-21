@@ -3,7 +3,7 @@ module github.com/flynn/hubauth
 go 1.15
 
 require (
-	cloud.google.com/go v0.68.0
+	cloud.google.com/go v0.70.0
 	cloud.google.com/go/datastore v1.3.0
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.4
 	github.com/alecthomas/kong v0.2.11
@@ -21,7 +21,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20200902213428-5d25da1a8d43
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
 	google.golang.org/api v0.33.0
-	google.golang.org/genproto v0.0.0-20201014134559-03b6142f0dc9
+	google.golang.org/genproto v0.0.0-20201019141844-1ed22bb0c154
 	google.golang.org/grpc v1.33.1
 	google.golang.org/protobuf v1.25.0
 )

@@ -22,7 +22,6 @@ func buildAudience(c *hubauth.Audience) *audience {
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
-		KeyVersion: c.KeyVersion,
 		Policies:   policies,
 		CreateTime: now,
 		UpdateTime: now,
@@ -35,7 +34,6 @@ type audience struct {
 	Type       string
 	ClientIDs  []string
 	Policies   []googleUserPolicy `datastore:",flatten"`
-	KeyVersion string
 	CreateTime time.Time
 	UpdateTime time.Time
 }
@@ -73,7 +71,6 @@ func (c *audience) Export() *hubauth.Audience {
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
-		KeyVersion: c.KeyVersion,
 		Policies:   policies,
 		CreateTime: c.CreateTime,
 		UpdateTime: c.UpdateTime,
@@ -173,12 +170,6 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					continue
 				}
 				aud.Type = m.Type
-				modified = true
-			case hubauth.AudienceMutationOpSetKeyVersion:
-				if aud.KeyVersion == m.KeyVersion {
-					continue
-				}
-				aud.KeyVersion = m.KeyVersion
 				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)

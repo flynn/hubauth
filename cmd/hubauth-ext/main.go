@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -72,9 +73,21 @@ func main() {
 		return string(result.Payload.Data)
 	}
 
-	db := datastore.New(dsClient)
+	forcedAudienceKeyVersions := new(kmssign.ForcedAudiencesKeyVersion)
+	// AUDIENCE_KEYS is a env variable containing a serialized json object, holding tuples of audienceURL: keyVersion
+	// it allows to specify a different key to use for some audience.
+	// example:
+	// {
+	//   "https://audience.url": "projects/PROJECT/locations/KMS_LOCATION/keyRings/KMS_KEYRING/cryptoKeys/AUDIENCE_NAME/cryptoKeyVersions/VERSION",
+	//   "https://another.audience.url": "projects/PROJECT/locations/KMS_LOCATION/keyRings/KMS_KEYRING/cryptoKeys/AUDIENCE_NAME/cryptoKeyVersions/VERSION"
+	// }
+	if keys := os.Getenv("AUDIENCE_KEYS"); keys != "" {
+		if err := json.Unmarshal([]byte(keys), forcedAudienceKeyVersions); err != nil {
+			log.Fatalf("invalid audience keys: %v", err)
+		}
+	}
 
-	audienceKeyNamer := kmssign.VersionnedAudienceKeyNameFunc(db, os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING"))
+	audienceKeyNamer := kmssign.AudienceKeyNameFunc(*forcedAudienceKeyVersions, os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING"))
 
 	var accessTokenBuilder token.AccessTokenBuilder
 	var rootPubKey []byte
@@ -100,7 +113,8 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
 		Propagation: &propagation.HTTPFormat{},
 		Handler: httpapi.New(httpapi.Config{
-			IdP: idp.New(db,
+			IdP: idp.New(
+				datastore.New(dsClient),
 				google.New(
 					os.Getenv("RP_GOOGLE_CLIENT_ID"),
 					os.Getenv("RP_GOOGLE_CLIENT_SECRET"),

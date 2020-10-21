@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -118,7 +117,6 @@ func TestAudiencesListCmd(t *testing.T) {
 		{
 			URL:        "audience2URL",
 			Type:       "type2",
-			KeyVersion: "key/resource/name/3",
 			ClientIDs:  []string{"client3"},
 			CreateTime: createTime,
 			UpdateTime: updateTime,
@@ -149,15 +147,9 @@ func TestAudiencesListCmd(t *testing.T) {
 	expectedBuf := new(bytes.Buffer)
 	tw := table.NewWriter()
 	tw.SetOutputMirror(expectedBuf)
-	tw.AppendHeader(table.Row{"URL", "Type", "KeyVersion", "ClientIDs", "CreateTime", "UpdateTime"})
+	tw.AppendHeader(table.Row{"URL", "Type", "ClientIDs", "CreateTime", "UpdateTime"})
 	for _, a := range audiences {
-		expectedKeyVersion := "1"
-		if a.KeyVersion != "" {
-			split := strings.Split(a.KeyVersion, "/")
-			expectedKeyVersion = split[len(split)-1]
-		}
-
-		tw.AppendRow(table.Row{a.URL, a.Type, expectedKeyVersion, a.ClientIDs, a.CreateTime, a.UpdateTime})
+		tw.AppendRow(table.Row{a.URL, a.Type, a.ClientIDs, a.CreateTime, a.UpdateTime})
 	}
 	tw.Render()
 
@@ -207,14 +199,10 @@ func TestAudienceCreateCmd(t *testing.T) {
 		},
 	}).Return(&kmspb.CryptoKey{}, nil)
 
-	expectedKeyVersion, err := cryptoKeyVersion(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL, 1)
-	require.NoError(t, err)
-
 	cfg.DB.(*mockAudienceDatastore).On("CreateAudience", mock.Anything, &hubauth.Audience{
-		URL:        "https://audience.url.com",
-		Type:       "flynn_controller",
-		ClientIDs:  cmd.ClientIDs,
-		KeyVersion: expectedKeyVersion,
+		URL:       "https://audience.url.com",
+		Type:      "flynn_controller",
+		ClientIDs: cmd.ClientIDs,
 	}).Return(nil)
 
 	require.NoError(t, cmd.Run(cfg))
@@ -350,6 +338,7 @@ func TestAudienceKeyCmd(t *testing.T) {
 		KMSKeyring:  "kmsKeyring",
 		KMSLocation: "kmsLocation",
 		URL:         "https://audience.url",
+		KeyVersion:  2,
 	}
 
 	cfg := &Config{
@@ -358,12 +347,11 @@ func TestAudienceKeyCmd(t *testing.T) {
 		ProjectID: "projectID",
 	}
 
-	expectedKeyVersion, err := cryptoKeyVersion(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL, 5)
+	expectedKeyVersion, err := cryptoKeyVersion(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL, 2)
 	require.NoError(t, err)
 
 	cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.URL).Return(&hubauth.Audience{
-		URL:        cmd.URL,
-		KeyVersion: expectedKeyVersion,
+		URL: cmd.URL,
 	}, nil)
 
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -401,9 +389,16 @@ func TestAudienceKeyErrors(t *testing.T) {
 		AudienceURL     string
 	}{
 		{
-			Desc:           "invalid audience",
-			GetAudienceErr: errors.New("audience not found"),
-			ExpectedErr:    errors.New("audience not found"),
+			Desc:        "audience url fail to parse",
+			AudienceURL: "://audience.url",
+		},
+		{
+			Desc:        "audience url no https",
+			AudienceURL: "http://audience.url",
+		},
+		{
+			Desc:        "audience url path not empty",
+			AudienceURL: "https://audience.url/path",
 		},
 		{
 			Desc:            "fail to get public key",
@@ -426,7 +421,6 @@ func TestAudienceKeyErrors(t *testing.T) {
 				ProjectID: "projectID",
 			}
 
-			cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.URL).Return(&hubauth.Audience{}, testCase.GetAudienceErr)
 			cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, mock.Anything).Return(&kmspb.PublicKey{}, testCase.GetPublicKeyErr)
 
 			err := cmd.Run(cfg)

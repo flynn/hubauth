@@ -71,7 +71,6 @@ type Audience struct {
 	URL        string              `json:"url"`
 	Name       string              `json:"name"`
 	Type       string              `json:"type"`
-	KeyVersion string              `json:"-"`
 	ClientIDs  []string            `json:"-"`
 	Policies   []*GoogleUserPolicy `json:"-"`
 	CreateTime time.Time           `json:"-"`
@@ -92,7 +91,6 @@ const (
 	AudienceMutationOpSetPolicy
 	AudienceMutationOpDeletePolicy
 	AudienceMutationOpSetType
-	AudienceMutationOpSetKeyVersion
 )
 
 type AudienceMutation struct {

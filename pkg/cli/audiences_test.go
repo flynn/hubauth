@@ -21,21 +21,30 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/cloud/kms/v1"
+	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
 type mockKMS struct {
 	mock.Mock
 }
 
-func (m *mockKMS) CreateCryptoKey(ctx context.Context, req *kms.CreateCryptoKeyRequest, opts ...gax.CallOption) (*kms.CryptoKey, error) {
+func (m *mockKMS) CreateCryptoKey(ctx context.Context, req *kmspb.CreateCryptoKeyRequest, opts ...gax.CallOption) (*kmspb.CryptoKey, error) {
 	// opts ignored, testify mocks doesn't seems to really like variadic args...
 	args := m.Called(ctx, req)
-	return args.Get(0).(*kms.CryptoKey), args.Error(1)
+	return args.Get(0).(*kmspb.CryptoKey), args.Error(1)
 }
-func (m *mockKMS) GetPublicKey(ctx context.Context, req *kms.GetPublicKeyRequest, opts ...gax.CallOption) (*kms.PublicKey, error) {
+func (m *mockKMS) GetPublicKey(ctx context.Context, req *kmspb.GetPublicKeyRequest, opts ...gax.CallOption) (*kmspb.PublicKey, error) {
 	// opts ignored, testify mocks doesn't seems to really like variadic args...
 	args := m.Called(ctx, req)
-	return args.Get(0).(*kms.PublicKey), args.Error(1)
+	return args.Get(0).(*kmspb.PublicKey), args.Error(1)
+}
+func (m *mockKMS) ListCryptoKeyVersions(ctx context.Context, req *kmspb.ListCryptoKeyVersionsRequest, opts ...gax.CallOption) ([]*kmspb.CryptoKeyVersion, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).([]*kmspb.CryptoKeyVersion), args.Error(1)
+}
+func (m *mockKMS) DestroyCryptoKeyVersion(ctx context.Context, req *kmspb.DestroyCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).(*kmspb.CryptoKeyVersion), args.Error(1)
 }
 
 type mockAudienceDatastore struct {
@@ -162,17 +171,17 @@ func TestAudienceCreateCmd(t *testing.T) {
 
 	cfg.DB.(*mockAudienceDatastore).On("GetClient", mock.Anything, "client1").Return(&hubauth.Client{}, nil)
 	cfg.DB.(*mockAudienceDatastore).On("GetClient", mock.Anything, "client2").Return(&hubauth.Client{}, nil)
-	cfg.KMS.(*mockKMS).On("CreateCryptoKey", mock.Anything, &kms.CreateCryptoKeyRequest{
+	cfg.KMS.(*mockKMS).On("CreateCryptoKey", mock.Anything, &kmspb.CreateCryptoKeyRequest{
 		Parent:      fmt.Sprintf("projects/%s/locations/%s/keyRings/%s", cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring),
 		CryptoKeyId: "audience_url_com",
-		CryptoKey: &kms.CryptoKey{
-			Purpose: kms.CryptoKey_ASYMMETRIC_SIGN,
-			VersionTemplate: &kms.CryptoKeyVersionTemplate{
-				ProtectionLevel: kms.ProtectionLevel_SOFTWARE,
-				Algorithm:       kms.CryptoKeyVersion_EC_SIGN_P256_SHA256,
+		CryptoKey: &kmspb.CryptoKey{
+			Purpose: kmspb.CryptoKey_ASYMMETRIC_SIGN,
+			VersionTemplate: &kmspb.CryptoKeyVersionTemplate{
+				ProtectionLevel: kmspb.ProtectionLevel_SOFTWARE,
+				Algorithm:       kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256,
 			},
 		},
-	}).Return(&kms.CryptoKey{}, nil)
+	}).Return(&kmspb.CryptoKey{}, nil)
 
 	cfg.DB.(*mockAudienceDatastore).On("CreateAudience", mock.Anything, &hubauth.Audience{
 		URL:       "https://audience.url.com",
@@ -239,7 +248,7 @@ func TestAudienceCreateErrors(t *testing.T) {
 			}
 
 			cfg.DB.(*mockAudienceDatastore).On("GetClient", mock.Anything, mock.Anything).Return(&hubauth.Client{}, testCase.GetClientErr)
-			cfg.KMS.(*mockKMS).On("CreateCryptoKey", mock.Anything, mock.Anything).Return(&kms.CryptoKey{}, testCase.CreateCryptoKeyErr)
+			cfg.KMS.(*mockKMS).On("CreateCryptoKey", mock.Anything, mock.Anything).Return(&kmspb.CryptoKey{}, testCase.CreateCryptoKeyErr)
 			cfg.DB.(*mockAudienceDatastore).On("CreateAudience", mock.Anything, mock.Anything).Return(testCase.CreateAudienceErr)
 
 			err := cmd.Run(cfg)
@@ -327,9 +336,9 @@ func TestAudienceKeyCmd(t *testing.T) {
 	pubKeyDER, err := x509.MarshalPKIXPublicKey(privKey.Public())
 	require.NoError(t, err)
 	pubKeyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubKeyDER}))
-	expectedPublicKey := &kms.PublicKey{Pem: pubKeyPEM}
+	expectedPublicKey := &kmspb.PublicKey{Pem: pubKeyPEM}
 
-	cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, &kms.GetPublicKeyRequest{Name: expectedKeyName}).Return(expectedPublicKey, nil)
+	cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, &kmspb.GetPublicKeyRequest{Name: expectedKeyName}).Return(expectedPublicKey, nil)
 
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
@@ -388,7 +397,7 @@ func TestAudienceKeyErrors(t *testing.T) {
 				ProjectID: "projectID",
 			}
 
-			cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, mock.Anything).Return(&kms.PublicKey{}, testCase.GetPublicKeyErr)
+			cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, mock.Anything).Return(&kmspb.PublicKey{}, testCase.GetPublicKeyErr)
 
 			err := cmd.Run(cfg)
 			if testCase.ExpectedErr != nil {
@@ -458,11 +467,28 @@ func TestAudienceUpdateClientIDsCmd(t *testing.T) {
 func TestAudienceDeleteCmd(t *testing.T) {
 	cmd := &audiencesDeleteCmd{
 		AudienceURL: "https://removed.audience.url",
+		KMSLocation: "global",
+		KMSKeyring:  "keyring",
 	}
 
 	cfg := &Config{
-		DB: &mockAudienceDatastore{},
+		DB:        &mockAudienceDatastore{},
+		KMS:       &mockKMS{},
+		ProjectID: "projectID",
 	}
+
+	versions := []*kmspb.CryptoKeyVersion{{Name: "v1"}, {Name: "v2"}}
+
+	cfg.KMS.(*mockKMS).On("ListCryptoKeyVersions", mock.Anything, &kmspb.ListCryptoKeyVersionsRequest{
+		Parent: fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/removed_audience_url",
+			cfg.ProjectID,
+			cmd.KMSLocation,
+			cmd.KMSKeyring,
+		),
+	}).Return(versions, nil)
+
+	cfg.KMS.(*mockKMS).On("DestroyCryptoKeyVersion", mock.Anything, &kms.DestroyCryptoKeyVersionRequest{Name: "v1"}).Once().Return(&kmspb.CryptoKeyVersion{}, nil)
+	cfg.KMS.(*mockKMS).On("DestroyCryptoKeyVersion", mock.Anything, &kms.DestroyCryptoKeyVersionRequest{Name: "v2"}).Once().Return(&kmspb.CryptoKeyVersion{}, nil)
 
 	cfg.DB.(*mockAudienceDatastore).On("DeleteAudience", mock.Anything, cmd.AudienceURL).Return(nil)
 	require.NoError(t, cmd.Run(cfg))

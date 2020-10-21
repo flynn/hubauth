@@ -5,9 +5,9 @@ import (
 	"log"
 
 	google_datastore "cloud.google.com/go/datastore"
-	kms "cloud.google.com/go/kms/apiv1"
 	"github.com/alecthomas/kong"
 	"github.com/flynn/hubauth/pkg/cli"
+	"github.com/flynn/hubauth/pkg/cli/kms"
 	"github.com/flynn/hubauth/pkg/datastore"
 )
 
@@ -20,7 +20,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error initializing datastore client: %s", err)
 	}
-	kmsClient, err := kms.NewKeyManagementClient(ctx)
+	kmsClient, err := kms.NewKMSClient(ctx)
 	if err != nil {
 		log.Fatalf("error initializing kms client: %s", err)
 	}

@@ -21,6 +21,7 @@ type audiencesCmd struct {
 	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience'"`
 	ListPolicies    audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
 	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
+	UpdatePolicy    audiencesUpdatePolicyCmd     `kong:"cmd,name='update-policy',help='modify audience policy api user or groups'"`
 	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
 	Key             audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
 }
@@ -160,6 +161,38 @@ func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
 		},
 	}
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})
+}
+
+type audiencesUpdatePolicyCmd struct {
+	AudienceURL  string   `kong:"required,name='audience-url',help='audience URL'"`
+	Domain       string   `kong:"required,help='G Suite domain name'"`
+	APIUser      string   `kong:"name='api-user',help='G Suite user email to impersonate for API calls'"`
+	AddGroups    []string `kong:"name='add-groups',help='comma-separated group IDs to add'"`
+	DeleteGroups []string `kong:"name='delete-groups',help='comma-separated group IDs to delete'"`
+}
+
+func (c *audiencesUpdatePolicyCmd) Run(cfg *Config) error {
+	var muts []*hubauth.AudiencePolicyMutation
+	for _, groupID := range c.AddGroups {
+		muts = append(muts, &hubauth.AudiencePolicyMutation{
+			Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+			Group: groupID,
+		})
+	}
+	for _, groupID := range c.DeleteGroups {
+		muts = append(muts, &hubauth.AudiencePolicyMutation{
+			Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+			Group: groupID,
+		})
+	}
+	if c.APIUser != "" {
+		muts = append(muts, &hubauth.AudiencePolicyMutation{
+			Op:      hubauth.AudiencePolicyMutationOpSetAPIUser,
+			APIUser: c.APIUser,
+		})
+	}
+
+	return cfg.DB.MutateAudiencePolicy(context.Background(), c.AudienceURL, c.Domain, muts)
 }
 
 type audiencesDeletePolicyCmd struct {

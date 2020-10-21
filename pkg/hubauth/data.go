@@ -61,6 +61,7 @@ type AudienceStore interface {
 	GetAudience(ctx context.Context, url string) (*Audience, error)
 	CreateAudience(ctx context.Context, audience *Audience) error
 	MutateAudience(ctx context.Context, url string, mut []*AudienceMutation) error
+	MutateAudiencePolicy(ctx context.Context, url string, domain string, mut []*AudiencePolicyMutation) error
 	ListAudiencesForClient(ctx context.Context, clientID string) ([]*Audience, error)
 	ListAudiences(ctx context.Context) ([]*Audience, error)
 	DeleteAudience(ctx context.Context, url string) error
@@ -96,6 +97,21 @@ type AudienceMutation struct {
 
 	ClientID string
 	Policy   GoogleUserPolicy
+}
+
+type AudiencePolicyMutationOp byte
+
+const (
+	AudiencePolicyMutationOpAddGroup AudiencePolicyMutationOp = iota
+	AudiencePolicyMutationOpDeleteGroup
+	AudiencePolicyMutationOpSetAPIUser
+)
+
+type AudiencePolicyMutation struct {
+	Op AudiencePolicyMutationOp
+
+	APIUser string
+	Group   string
 }
 
 type CodeStore interface {

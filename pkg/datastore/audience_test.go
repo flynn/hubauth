@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -393,5 +394,184 @@ func TestAudienceMutate(t *testing.T) {
 		require.Equal(t, tt.after, res, tt.desc)
 
 		s.DeleteAudience(ctx, url)
+	}
+}
+
+func TestMutateAudiencePolicy(t *testing.T) {
+	domain := "policy.domain"
+
+	type test struct {
+		desc   string
+		mut    []*hubauth.AudiencePolicyMutation
+		before []*hubauth.GoogleUserPolicy
+		after  []*hubauth.GoogleUserPolicy
+	}
+	tests := []test{
+		{
+			desc: "new api user",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:      hubauth.AudiencePolicyMutationOpSetAPIUser,
+					APIUser: "user2",
+				},
+			},
+			before: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user2", Groups: []string{"grp1", "grp2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+		{
+			desc: "same api user",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:      hubauth.AudiencePolicyMutationOpSetAPIUser,
+					APIUser: "user1",
+				},
+			},
+			before: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+		{
+			desc: "add groups",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "added-1",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "added-2",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "grp2",
+				},
+			},
+			before: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2", "added-1", "added-2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+		{
+			desc: "delete groups",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp1",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp2",
+				},
+			},
+			before: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2", "grp3"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp3"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+		{
+			desc: "delete all groups",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp1",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp2",
+				},
+			},
+			before: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: nil},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+		{
+			desc: "multiple",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "added-1",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "added-2",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp1",
+				},
+				{
+					Op:      hubauth.AudiencePolicyMutationOpSetAPIUser,
+					APIUser: "new-user",
+				},
+			},
+			before: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserPolicy{
+				{Domain: domain, APIUser: "new-user", Groups: []string{"grp2", "added-1", "added-2"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+	}
+
+	s := newTestService(t)
+	ctx := context.Background()
+	for _, tt := range tests {
+		aud := &hubauth.Audience{
+			URL:      "https://cluster.mutate.example.com",
+			Policies: tt.before,
+		}
+
+		err := s.CreateAudience(ctx, aud)
+		require.NoError(t, err, tt.desc)
+		before, err := s.GetAudience(ctx, aud.URL)
+		require.NoError(t, err)
+
+		err = s.MutateAudiencePolicy(ctx, aud.URL, domain, tt.mut)
+		require.NoError(t, err, tt.desc)
+
+		res, err := s.GetAudience(ctx, aud.URL)
+		require.NoError(t, err, tt.desc)
+		if len(res.Policies) == 0 {
+			res.Policies = nil
+		}
+		require.Equal(t, before.CreateTime, res.CreateTime)
+
+		// sort to ensure consistent slice comparison
+		for _, p := range res.Policies {
+			sort.Strings(p.Groups)
+		}
+		for _, p := range tt.after {
+			sort.Strings(p.Groups)
+		}
+
+		require.Equal(t, tt.after, res.Policies, tt.desc)
+
+		s.DeleteAudience(ctx, aud.URL)
 	}
 }

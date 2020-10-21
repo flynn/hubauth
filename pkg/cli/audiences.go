@@ -29,10 +29,8 @@ type audiencesCmd struct {
 	Key               audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
 	ListKeyVersions   audiencesListKeyVersionsCmd  `kong:"cmd,help='list audience key versions'"`
 	CreateKeyVersion  audienceCreateKeyVersion     `kong:"cmd,help='create a new audience key version'"`
-	SetKeyVersion     audienceSetKeyVersion        `kong:"cmd,help='set an audience key version'"`
 	DeleteKeyVersion  audiencesDeleteKeyVersion    `kong:"cmd,help='schedule an audience key version for deletion'"`
 	RestoreKeyVersion audiencesRestoreKeyVersion   `kong:"cmd,help='restore an audience key version scheduled for deletion'"`
-	PruneKeyVersions  audiencesPruneKeyVersions    `kong:"cmd,help='schedule for deletion all unused key versions'"`
 }
 
 type audiencesListCmd struct{}
@@ -44,15 +42,9 @@ func (c *audiencesListCmd) Run(cfg *Config) error {
 	}
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"URL", "Type", "KeyVersion", "ClientIDs", "CreateTime", "UpdateTime"})
+	t.AppendHeader(table.Row{"URL", "Type", "ClientIDs", "CreateTime", "UpdateTime"})
 	for _, audience := range audiences {
-		versionID := "1"
-		if audience.KeyVersion != "" {
-			split := strings.Split(audience.KeyVersion, "/")
-			versionID = split[len(split)-1]
-		}
-
-		t.AppendRow(table.Row{audience.URL, audience.Type, versionID, audience.ClientIDs, audience.CreateTime, audience.UpdateTime})
+		t.AppendRow(table.Row{audience.URL, audience.Type, audience.ClientIDs, audience.CreateTime, audience.UpdateTime})
 	}
 	t.Render()
 	return nil
@@ -102,17 +94,10 @@ func (c *audiencesCreateCmd) Run(cfg *Config) error {
 		return fmt.Errorf("error creating audience key: %w", err)
 	}
 
-	//  TODO: versions may not be "1" when recreating a previously deleted audience, better fetch the proper version from KMS.
-	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL, 1)
-	if err != nil {
-		return fmt.Errorf("invalid key version: %w", err)
-	}
-
 	return cfg.DB.CreateAudience(ctx, &hubauth.Audience{
-		URL:        "https://" + u.Host,
-		Type:       c.Type,
-		ClientIDs:  c.ClientIDs,
-		KeyVersion: keyVersion,
+		URL:       "https://" + u.Host,
+		Type:      c.Type,
+		ClientIDs: c.ClientIDs,
 	})
 }
 
@@ -272,26 +257,20 @@ func (c *audiencesDeletePolicyCmd) Run(cfg *Config) error {
 
 type audiencesKeyCmd struct {
 	URL         string `kong:"required,name='audience-url',help='audience URL'"`
+	KeyVersion  int    `kong:"name='key-version',help='key version',default=1"`
 	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
 	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
 }
 
 func (c *audiencesKeyCmd) Run(cfg *Config) error {
 	ctx := context.Background()
-	audience, err := cfg.DB.GetAudience(ctx, c.URL)
+	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL, c.KeyVersion)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve audience: %w", err)
-	}
-	if audience.KeyVersion == "" {
-		v, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL, 1)
-		if err != nil {
-			return fmt.Errorf("invalid key version: %w", err)
-		}
-		audience.KeyVersion = v
+		return fmt.Errorf("invalid key version: %w", err)
 	}
 
 	res, err := cfg.KMS.GetPublicKey(ctx, &kms.GetPublicKeyRequest{
-		Name: audience.KeyVersion,
+		Name: keyVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to fetch public key: %w", err)
@@ -309,19 +288,7 @@ type audiencesListKeyVersionsCmd struct {
 }
 
 func (c *audiencesListKeyVersionsCmd) Run(cfg *Config) error {
-	audience, err := cfg.DB.GetAudience(context.Background(), c.URL)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve audience: %w", err)
-	}
-	if audience.KeyVersion == "" {
-		v, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL, 1)
-		if err != nil {
-			return fmt.Errorf("invalid key version: %w", err)
-		}
-		audience.KeyVersion = v
-	}
-
-	keyName, err := cryptoKeyName(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL)
+	keyName, err := cryptoKeyName(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL)
 	if err != nil {
 		return fmt.Errorf("invalid key name: %w", err)
 	}
@@ -334,22 +301,17 @@ func (c *audiencesListKeyVersionsCmd) Run(cfg *Config) error {
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"Version", "Active", "State", "Alg", "CreateTime", "DestroyTime"})
+	t.AppendHeader(table.Row{"Version", "State", "Alg", "CreateTime", "DestroyTime"})
 	for _, v := range versions {
 		split := strings.Split(v.Name, "/")
 		versionID := split[len(split)-1]
-
-		active := ""
-		if v.Name == audience.KeyVersion {
-			active = "yes"
-		}
 
 		destroyedAt := ""
 		if v.DestroyTime != nil {
 			destroyedAt = v.DestroyTime.AsTime().String()
 		}
 
-		t.AppendRow(table.Row{versionID, active, v.State, v.Algorithm, v.CreateTime.AsTime(), destroyedAt})
+		t.AppendRow(table.Row{versionID, v.State, v.Algorithm, v.CreateTime.AsTime(), destroyedAt})
 	}
 	t.Render()
 
@@ -363,12 +325,7 @@ type audienceCreateKeyVersion struct {
 }
 
 func (c *audienceCreateKeyVersion) Run(cfg *Config) error {
-	audience, err := cfg.DB.GetAudience(context.Background(), c.URL)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve audience: %w", err)
-	}
-
-	keyName, err := cryptoKeyName(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL)
+	keyName, err := cryptoKeyName(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL)
 	if err != nil {
 		return fmt.Errorf("invalid key name: %w", err)
 	}
@@ -385,33 +342,6 @@ func (c *audienceCreateKeyVersion) Run(cfg *Config) error {
 	return nil
 }
 
-type audienceSetKeyVersion struct {
-	URL         string `kong:"required,name='audience-url',help='audience URL'"`
-	KeyVersion  int    `kong:"required,name='key-version',help='key version'"`
-	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
-	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
-}
-
-func (c *audienceSetKeyVersion) Run(cfg *Config) error {
-	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL, c.KeyVersion)
-	if err != nil {
-		return fmt.Errorf("invalid key version: %w", err)
-	}
-
-	// ensure key exists and is in enabled state
-	_, err = cfg.KMS.GetPublicKey(context.Background(), &kms.GetPublicKeyRequest{
-		Name: keyVersion,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to retrieve key version: %w", err)
-	}
-
-	return cfg.DB.MutateAudience(context.Background(), c.URL, []*hubauth.AudienceMutation{{
-		Op:         hubauth.AudienceMutationOpSetKeyVersion,
-		KeyVersion: keyVersion,
-	}})
-}
-
 type audiencesDeleteKeyVersion struct {
 	URL         string `kong:"required,name='audience-url',help='audience URL'"`
 	KeyVersion  int    `kong:"required,name='key-version',help='key version'"`
@@ -420,25 +350,9 @@ type audiencesDeleteKeyVersion struct {
 }
 
 func (c *audiencesDeleteKeyVersion) Run(cfg *Config) error {
-	audience, err := cfg.DB.GetAudience(context.Background(), c.URL)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve audience: %w", err)
-	}
-	if audience.KeyVersion == "" {
-		v, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL, 1)
-		if err != nil {
-			return fmt.Errorf("invalid key version: %w", err)
-		}
-		audience.KeyVersion = v
-	}
-
-	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL, c.KeyVersion)
+	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL, c.KeyVersion)
 	if err != nil {
 		return fmt.Errorf("invalid key version: %w", err)
-	}
-
-	if audience.KeyVersion == keyVersion {
-		return fmt.Errorf("cannot delete current active key version %d, set another version first", c.KeyVersion)
 	}
 
 	if _, err = cfg.KMS.DestroyCryptoKeyVersion(context.Background(), &kms.DestroyCryptoKeyVersionRequest{
@@ -487,76 +401,16 @@ func (c *audiencesRestoreKeyVersion) Run(cfg *Config) error {
 	return nil
 }
 
-type audiencesPruneKeyVersions struct {
-	URL         string `kong:"name='audience-url',help='audience URL'"`
-	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
-	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
-}
-
-func (c *audiencesPruneKeyVersions) Run(cfg *Config) error {
-	var audiences []*hubauth.Audience
-	if c.URL != "" {
-		aud, err := cfg.DB.GetAudience(context.Background(), c.URL)
-		if err != nil {
-			return fmt.Errorf("failed to retrieve audience: %w", err)
-		}
-		audiences = []*hubauth.Audience{aud}
-	} else {
-		var err error
-		audiences, err = cfg.DB.ListAudiences(context.Background())
-		if err != nil {
-			return fmt.Errorf("failed to fetch audiences: %w", err)
-		}
-	}
-
-	for _, audience := range audiences {
-		if audience.KeyVersion == "" {
-			v, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL, 1)
-			if err != nil {
-				return fmt.Errorf("invalid key version: %w", err)
-			}
-			audience.KeyVersion = v
-		}
-
-		keyName, err := cryptoKeyName(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, audience.URL)
-		if err != nil {
-			return fmt.Errorf("invalid key name: %w", err)
-		}
-		versions, err := cfg.KMS.ListCryptoKeyVersions(context.Background(), &kmspb.ListCryptoKeyVersionsRequest{
-			Parent: keyName,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to list key versions: %w", err)
-		}
-
-		for _, v := range versions {
-			if v.Name == audience.KeyVersion {
-				fmt.Printf("skipped currently used key version %q\n", v.Name)
-				continue
-			}
-
-			if v.State == kmspb.CryptoKeyVersion_DESTROY_SCHEDULED || v.State == kms.CryptoKeyVersion_DESTROYED {
-				fmt.Printf("skipped already destroyed key version %q\n", v.Name)
-				continue
-			}
-
-			_, err = cfg.KMS.DestroyCryptoKeyVersion(context.Background(), &kmspb.DestroyCryptoKeyVersionRequest{
-				Name: v.Name,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to schedule key version for deletion: %w", err)
-			}
-			fmt.Printf("key version %q scheduled for deletion\n", v.Name)
-		}
-	}
-
-	return nil
-}
-
 func cryptoKeyName(projectID, kmsLocation, kmsKeyring string, audienceURL string) (string, error) {
 	u, err := url.Parse(audienceURL)
 	if err != nil {
 		return "", err
+	}
+	if u.Scheme != "https" {
+		return "", fmt.Errorf("audience URL must be https://")
+	}
+	if u.Path != "" {
+		return "", fmt.Errorf("unexpected path in audience URL")
 	}
 
 	return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s",

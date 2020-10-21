@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/flynn/hubauth/pkg/hubauth"
 	gax "github.com/googleapis/gax-go/v2"
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
@@ -21,36 +20,26 @@ import (
 
 type AudienceKeyNamer func(audience string) (string, error)
 
-// AudienceKeyNameFunc returns the GCP KMS resource name of the audience key, fixed at version 1.
-func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) (string, error) {
+// ForcedAudiencesKeyVersion list audienceURL with a key version resource name
+// when provided to an AudienceKeyNameFunc, it allows to override a default audience
+// key version with the one from the map.
+type ForcedAudiencesKeyVersion map[string]string
+
+// AudienceKeyNameFunc returns the GCP KMS resource name of the audience key.
+// The default version returned is 1, and it can be overridden by adding the audience URL
+// and the new key to the ForcedAudiencesKeyVersion map.
+func AudienceKeyNameFunc(forcedAudiencesKeyVersion ForcedAudiencesKeyVersion, projectID, location, keyRing string) func(string) (string, error) {
 	return func(aud string) (string, error) {
 		u, err := url.Parse(aud)
 		if err != nil {
 			return "", err
 		}
+
+		if keyName, ok := forcedAudiencesKeyVersion[aud]; ok {
+			return keyName, nil
+		}
+
 		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1)), nil
-	}
-}
-
-// VersionnedAudienceKeyNameFunc returns the GCP KMS resource name of the audience key, fetching the version to use from the db.
-func VersionnedAudienceKeyNameFunc(db hubauth.AudienceStore, projectID, location, keyRing string) func(string) (string, error) {
-	return func(aud string) (string, error) {
-		u, err := url.Parse(aud)
-		if err != nil {
-			return "", err
-		}
-
-		audience, err := db.GetAudience(context.Background(), aud)
-		if err != nil {
-			return "", err
-		}
-
-		name := audience.KeyVersion
-		if name == "" {
-			name = fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1))
-		}
-
-		return name, nil
 	}
 }
 

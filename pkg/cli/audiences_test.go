@@ -97,18 +97,21 @@ func TestAudiencesListCmd(t *testing.T) {
 	audiences := []*hubauth.Audience{
 		{
 			URL:        "audience1URL",
+			Type:       "type1",
 			ClientIDs:  []string{"client1", "client2"},
 			CreateTime: createTime,
 			UpdateTime: updateTime,
 		},
 		{
 			URL:        "audience2URL",
+			Type:       "type2",
 			ClientIDs:  []string{"client3"},
 			CreateTime: createTime,
 			UpdateTime: updateTime,
 		},
 		{
 			URL:        "audience3URL",
+			Type:       "type3",
 			ClientIDs:  []string{},
 			CreateTime: createTime,
 			UpdateTime: updateTime,
@@ -132,9 +135,9 @@ func TestAudiencesListCmd(t *testing.T) {
 	expectedBuf := new(bytes.Buffer)
 	tw := table.NewWriter()
 	tw.SetOutputMirror(expectedBuf)
-	tw.AppendHeader(table.Row{"URL", "ClientIDs", "CreateTime", "UpdateTime"})
+	tw.AppendHeader(table.Row{"URL", "Type", "ClientIDs", "CreateTime", "UpdateTime"})
 	for _, a := range audiences {
-		tw.AppendRow(table.Row{a.URL, a.ClientIDs, a.CreateTime, a.UpdateTime})
+		tw.AppendRow(table.Row{a.URL, a.Type, a.ClientIDs, a.CreateTime, a.UpdateTime})
 	}
 	tw.Render()
 
@@ -160,6 +163,7 @@ func TestAudienceCreateCmd(t *testing.T) {
 	cmd := &audiencesCreateCmd{
 		URL:         "https://audience.url.com",
 		ClientIDs:   []string{"client1", "client2"},
+		Type:        "flynn_controller",
 		KMSLocation: "kmsLocation",
 		KMSKeyring:  "kmsKeyring",
 	}
@@ -185,6 +189,7 @@ func TestAudienceCreateCmd(t *testing.T) {
 
 	cfg.DB.(*mockAudienceDatastore).On("CreateAudience", mock.Anything, &hubauth.Audience{
 		URL:       "https://audience.url.com",
+		Type:      "flynn_controller",
 		ClientIDs: cmd.ClientIDs,
 	}).Return(nil)
 
@@ -596,6 +601,25 @@ func TestAudienceUpdatePolicyCmd(t *testing.T) {
 	}
 
 	cfg.DB.(*mockAudienceDatastore).On("MutateAudiencePolicy", mock.Anything, cmd.AudienceURL, cmd.Domain, muts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceUpdateTypeCmd(t *testing.T) {
+	cmd := &audienceUpdateTypeCmd{
+		AudienceURL:  "https://modified.audience.url",
+		AudienceType: "new-type",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+	muts := []*hubauth.AudienceMutation{{
+		Op:   hubauth.AudienceMutationSetType,
+		Type: cmd.AudienceType,
+	}}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
 
 	require.NoError(t, cmd.Run(cfg))
 }

@@ -90,12 +90,14 @@ const (
 	AudienceMutationOpDeleteClientID
 	AudienceMutationOpSetPolicy
 	AudienceMutationOpDeletePolicy
+	AudienceMutationSetType
 )
 
 type AudienceMutation struct {
 	Op AudienceMutationOp
 
 	ClientID string
+	Type     string
 	Policy   GoogleUserPolicy
 }
 

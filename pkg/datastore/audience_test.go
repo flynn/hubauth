@@ -347,7 +347,7 @@ func TestAudienceMutate(t *testing.T) {
 			desc: "update type",
 			mut: []*hubauth.AudienceMutation{
 				{
-					Op:   hubauth.AudienceMutationSetType,
+					Op:   hubauth.AudienceMutationOpSetType,
 					Type: "new-type",
 				},
 			},

@@ -35,7 +35,7 @@ type audience struct {
 	Type       string
 	ClientIDs  []string
 	Policies   []googleUserPolicy `datastore:",flatten"`
-	KeyVersion int
+	KeyVersion string
 	CreateTime time.Time
 	UpdateTime time.Time
 }
@@ -168,11 +168,17 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					aud.Policies = aud.Policies[:len(aud.Policies)-1]
 					modified = true
 				}
-			case hubauth.AudienceMutationSetType:
+			case hubauth.AudienceMutationOpSetType:
 				if aud.Type == m.Type {
 					continue
 				}
 				aud.Type = m.Type
+				modified = true
+			case hubauth.AudienceMutationOpSetKeyVersion:
+				if aud.KeyVersion == m.KeyVersion {
+					continue
+				}
+				aud.KeyVersion = m.KeyVersion
 				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)

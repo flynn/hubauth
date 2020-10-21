@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +44,18 @@ func (m *mockKMS) ListCryptoKeyVersions(ctx context.Context, req *kmspb.ListCryp
 	return args.Get(0).([]*kmspb.CryptoKeyVersion), args.Error(1)
 }
 func (m *mockKMS) DestroyCryptoKeyVersion(ctx context.Context, req *kmspb.DestroyCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).(*kmspb.CryptoKeyVersion), args.Error(1)
+}
+func (m *mockKMS) CreateCryptoKeyVersion(ctx context.Context, req *kmspb.CreateCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).(*kmspb.CryptoKeyVersion), args.Error(1)
+}
+func (m *mockKMS) RestoreCryptoKeyVersion(ctx context.Context, req *kmspb.RestoreCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).(*kmspb.CryptoKeyVersion), args.Error(1)
+}
+func (m *mockKMS) UpdateCryptoKeyVersion(ctx context.Context, req *kmspb.UpdateCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
 	args := m.Called(ctx, req)
 	return args.Get(0).(*kmspb.CryptoKeyVersion), args.Error(1)
 }
@@ -105,6 +118,7 @@ func TestAudiencesListCmd(t *testing.T) {
 		{
 			URL:        "audience2URL",
 			Type:       "type2",
+			KeyVersion: "key/resource/name/3",
 			ClientIDs:  []string{"client3"},
 			CreateTime: createTime,
 			UpdateTime: updateTime,
@@ -135,9 +149,15 @@ func TestAudiencesListCmd(t *testing.T) {
 	expectedBuf := new(bytes.Buffer)
 	tw := table.NewWriter()
 	tw.SetOutputMirror(expectedBuf)
-	tw.AppendHeader(table.Row{"URL", "Type", "ClientIDs", "CreateTime", "UpdateTime"})
+	tw.AppendHeader(table.Row{"URL", "Type", "KeyVersion", "ClientIDs", "CreateTime", "UpdateTime"})
 	for _, a := range audiences {
-		tw.AppendRow(table.Row{a.URL, a.Type, a.ClientIDs, a.CreateTime, a.UpdateTime})
+		expectedKeyVersion := "1"
+		if a.KeyVersion != "" {
+			split := strings.Split(a.KeyVersion, "/")
+			expectedKeyVersion = split[len(split)-1]
+		}
+
+		tw.AppendRow(table.Row{a.URL, a.Type, expectedKeyVersion, a.ClientIDs, a.CreateTime, a.UpdateTime})
 	}
 	tw.Render()
 
@@ -187,10 +207,14 @@ func TestAudienceCreateCmd(t *testing.T) {
 		},
 	}).Return(&kmspb.CryptoKey{}, nil)
 
+	expectedKeyVersion, err := cryptoKeyVersion(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL, 1)
+	require.NoError(t, err)
+
 	cfg.DB.(*mockAudienceDatastore).On("CreateAudience", mock.Anything, &hubauth.Audience{
-		URL:       "https://audience.url.com",
-		Type:      "flynn_controller",
-		ClientIDs: cmd.ClientIDs,
+		URL:        "https://audience.url.com",
+		Type:       "flynn_controller",
+		ClientIDs:  cmd.ClientIDs,
+		KeyVersion: expectedKeyVersion,
 	}).Return(nil)
 
 	require.NoError(t, cmd.Run(cfg))
@@ -334,7 +358,13 @@ func TestAudienceKeyCmd(t *testing.T) {
 		ProjectID: "projectID",
 	}
 
-	expectedKeyName := fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, "audience_url")
+	expectedKeyVersion, err := cryptoKeyVersion(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL, 5)
+	require.NoError(t, err)
+
+	cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.URL).Return(&hubauth.Audience{
+		URL:        cmd.URL,
+		KeyVersion: expectedKeyVersion,
+	}, nil)
 
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -343,7 +373,7 @@ func TestAudienceKeyCmd(t *testing.T) {
 	pubKeyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubKeyDER}))
 	expectedPublicKey := &kmspb.PublicKey{Pem: pubKeyPEM}
 
-	cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, &kmspb.GetPublicKeyRequest{Name: expectedKeyName}).Return(expectedPublicKey, nil)
+	cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, &kmspb.GetPublicKeyRequest{Name: expectedKeyVersion}).Return(expectedPublicKey, nil)
 
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
@@ -365,21 +395,15 @@ func TestAudienceKeyCmd(t *testing.T) {
 func TestAudienceKeyErrors(t *testing.T) {
 	testCases := []struct {
 		Desc            string
+		GetAudienceErr  error
 		GetPublicKeyErr error
 		ExpectedErr     error
 		AudienceURL     string
 	}{
 		{
-			Desc:        "audience url fail to parse",
-			AudienceURL: "://audience.url",
-		},
-		{
-			Desc:        "audience url no https",
-			AudienceURL: "http://audience.url",
-		},
-		{
-			Desc:        "audience url path not empty",
-			AudienceURL: "https://audience.url/path",
+			Desc:           "invalid audience",
+			GetAudienceErr: errors.New("audience not found"),
+			ExpectedErr:    errors.New("audience not found"),
 		},
 		{
 			Desc:            "fail to get public key",
@@ -402,11 +426,12 @@ func TestAudienceKeyErrors(t *testing.T) {
 				ProjectID: "projectID",
 			}
 
+			cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.URL).Return(&hubauth.Audience{}, testCase.GetAudienceErr)
 			cfg.KMS.(*mockKMS).On("GetPublicKey", mock.Anything, mock.Anything).Return(&kmspb.PublicKey{}, testCase.GetPublicKeyErr)
 
 			err := cmd.Run(cfg)
 			if testCase.ExpectedErr != nil {
-				require.Equal(t, testCase.ExpectedErr, err)
+				require.Equal(t, testCase.ExpectedErr, errors.Unwrap(err))
 			} else {
 				require.Error(t, err)
 			}
@@ -484,12 +509,11 @@ func TestAudienceDeleteCmd(t *testing.T) {
 
 	versions := []*kmspb.CryptoKeyVersion{{Name: "v1"}, {Name: "v2"}}
 
+	expectedKeyName, err := cryptoKeyName(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.AudienceURL)
+	require.NoError(t, err)
+
 	cfg.KMS.(*mockKMS).On("ListCryptoKeyVersions", mock.Anything, &kmspb.ListCryptoKeyVersionsRequest{
-		Parent: fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/removed_audience_url",
-			cfg.ProjectID,
-			cmd.KMSLocation,
-			cmd.KMSKeyring,
-		),
+		Parent: expectedKeyName,
 	}).Return(versions, nil)
 
 	cfg.KMS.(*mockKMS).On("DestroyCryptoKeyVersion", mock.Anything, &kms.DestroyCryptoKeyVersionRequest{Name: "v1"}).Once().Return(&kmspb.CryptoKeyVersion{}, nil)
@@ -615,7 +639,7 @@ func TestAudienceUpdateTypeCmd(t *testing.T) {
 		DB: &mockAudienceDatastore{},
 	}
 	muts := []*hubauth.AudienceMutation{{
-		Op:   hubauth.AudienceMutationSetType,
+		Op:   hubauth.AudienceMutationOpSetType,
 		Type: cmd.AudienceType,
 	}}
 

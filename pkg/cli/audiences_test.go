@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/cloud/kms/v1"
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type mockKMS struct {
@@ -700,4 +701,106 @@ func TestAudienceUpdateTypeCmd(t *testing.T) {
 	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
 
 	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudiencesListKeyVersionsCmd(t *testing.T) {
+	cmd := &audiencesListKeyVersionsCmd{
+		URL:         "https://audience.url",
+		KMSKeyring:  "keyring",
+		KMSLocation: "location",
+	}
+
+	cfg := &Config{
+		KMS:       &mockKMS{},
+		ProjectID: "project-id",
+	}
+
+	keyName, err := cryptoKeyName(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL)
+	require.NoError(t, err)
+
+	now := time.Now()
+	versions := []*kmspb.CryptoKeyVersion{
+		{
+			Name:       "resource/name/1",
+			State:      kms.CryptoKeyVersion_ENABLED,
+			Algorithm:  kms.CryptoKeyVersion_EC_SIGN_P256_SHA256,
+			CreateTime: timestamppb.New(now.Add(-5 * time.Minute)),
+		},
+		{
+			Name:        "resource/name/2",
+			State:       kms.CryptoKeyVersion_DESTROY_SCHEDULED,
+			Algorithm:   kms.CryptoKeyVersion_EC_SIGN_P384_SHA384,
+			CreateTime:  timestamppb.New(now.Add(-10 * time.Second)),
+			DestroyTime: timestamppb.New(now),
+		},
+	}
+
+	cfg.KMS.(*mockKMS).On("ListCryptoKeyVersions", mock.Anything, &kms.ListCryptoKeyVersionsRequest{
+		Parent: keyName,
+	}).Return(versions, nil)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	require.NoError(t, cmd.Run(cfg))
+
+	os.Stdout = origStdout
+	buf := make([]byte, 2048)
+	n, err := r.Read(buf)
+	require.NoError(t, err)
+
+	expectedBuf := new(bytes.Buffer)
+	tw := table.NewWriter()
+	tw.SetOutputMirror(expectedBuf)
+	tw.AppendHeader(table.Row{"Version", "State", "Alg", "CreateTime", "DestroyTime"})
+	tw.AppendRow(table.Row{"1", kmspb.CryptoKeyVersion_ENABLED, kmspb.CryptoKeyVersion_EC_SIGN_P256_SHA256, timestamppb.New(now.Add(-5 * time.Minute)).AsTime(), ""})
+	tw.AppendRow(table.Row{"2", kmspb.CryptoKeyVersion_DESTROY_SCHEDULED, kmspb.CryptoKeyVersion_EC_SIGN_P384_SHA384, timestamppb.New(now.Add(-10 * time.Second)).AsTime(), timestamppb.New(now).AsTime()})
+	tw.Render()
+
+	require.Equal(t, expectedBuf.String(), string(buf[:n]))
+}
+
+func TestAudiencesListKeyVersionsErrors(t *testing.T) {
+	testCases := []struct {
+		Desc                     string
+		AudienceURL              string
+		ListCryptoKeyVersionsErr error
+		ExpectedErr              error
+	}{
+		{
+			Desc:        "audience url fail to parse",
+			AudienceURL: "://audience.url",
+		},
+		{
+			Desc:                     "fail to list keys",
+			AudienceURL:              "https://audience.url",
+			ListCryptoKeyVersionsErr: errors.New("list key versions error"),
+			ExpectedErr:              errors.New("list key versions error"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			cmd := &audiencesListKeyVersionsCmd{
+				URL:         testCase.AudienceURL,
+				KMSLocation: "global",
+				KMSKeyring:  "keyring",
+			}
+
+			cfg := &Config{
+				KMS:       &mockKMS{},
+				ProjectID: "projectID",
+			}
+
+			cfg.KMS.(*mockKMS).On("ListCryptoKeyVersions", mock.Anything, mock.Anything).Return([]*kmspb.CryptoKeyVersion{{Name: "v1"}}, testCase.ListCryptoKeyVersionsErr)
+			err := cmd.Run(cfg)
+			if testCase.ExpectedErr != nil {
+				require.Equal(t, testCase.ExpectedErr, errors.Unwrap(err))
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }

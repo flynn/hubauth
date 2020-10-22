@@ -304,3 +304,67 @@ func TestVerifyPanicWithEmptyPubkey(t *testing.T) {
 
 	t.Errorf("did not panic")
 }
+
+func TestAudienceKeyNameFunc(t *testing.T) {
+	testCases := []struct {
+		Desc            string
+		ForcedVersions  ForcedAudiencesKeyVersion
+		ProjectID       string
+		Location        string
+		KeyRing         string
+		Audience        string
+		ExpectedKeyName string
+		ExpectErr       bool
+	}{
+		{
+			Desc:            "default key is version 1",
+			ForcedVersions:  map[string]string{},
+			ProjectID:       "projectID",
+			Location:        "location",
+			KeyRing:         "keyRing",
+			Audience:        "https://audience.url",
+			ExpectedKeyName: "projects/projectID/locations/location/keyRings/keyRing/cryptoKeys/audience_url/cryptoKeyVersions/1",
+			ExpectErr:       false,
+		},
+		{
+			Desc:            "invalid audience url",
+			ForcedVersions:  map[string]string{},
+			Audience:        "://audience.url",
+			ExpectedKeyName: "",
+			ExpectErr:       true,
+		},
+		{
+			Desc:            "overriden version",
+			ForcedVersions:  map[string]string{"https://audience.url": "new key version"},
+			ProjectID:       "projectID",
+			Location:        "location",
+			KeyRing:         "keyRing",
+			Audience:        "https://audience.url",
+			ExpectedKeyName: "new key version",
+			ExpectErr:       false,
+		},
+		{
+			Desc:            "overriden version different audience",
+			ForcedVersions:  map[string]string{"https://another.url": "new key version"},
+			ProjectID:       "projectID",
+			Location:        "location",
+			KeyRing:         "keyRing",
+			Audience:        "https://audience.url",
+			ExpectedKeyName: "projects/projectID/locations/location/keyRings/keyRing/cryptoKeys/audience_url/cryptoKeyVersions/1",
+			ExpectErr:       false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			f := AudienceKeyNameFunc(testCase.ForcedVersions, testCase.ProjectID, testCase.Location, testCase.KeyRing)
+			keyName, err := f(testCase.Audience)
+			if testCase.ExpectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, testCase.ExpectedKeyName, keyName)
+		})
+	}
+}

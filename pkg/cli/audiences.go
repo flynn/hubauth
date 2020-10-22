@@ -17,20 +17,20 @@ import (
 )
 
 type audiencesCmd struct {
-	List              audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
-	Create            audiencesCreateCmd           `kong:"cmd,help='create audience'"`
-	UpdateType        audienceUpdateTypeCmd        `kong:"cmd,name='update-type',help='change audience type'"`
-	UpdateClientIDs   audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
-	Delete            audiencesDeleteCmd           `kong:"cmd,help='delete audience and all its keys'"`
-	ListPolicies      audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
-	SetPolicy         audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
-	UpdatePolicy      audiencesUpdatePolicyCmd     `kong:"cmd,name='update-policy',help='modify audience policy api user or groups'"`
-	DeletePolicy      audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
-	Key               audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
-	ListKeyVersions   audiencesListKeyVersionsCmd  `kong:"cmd,help='list audience key versions'"`
-	CreateKeyVersion  audienceCreateKeyVersion     `kong:"cmd,help='create a new audience key version'"`
-	DeleteKeyVersion  audiencesDeleteKeyVersion    `kong:"cmd,help='schedule an audience key version for deletion'"`
-	RestoreKeyVersion audiencesRestoreKeyVersion   `kong:"cmd,help='restore an audience key version scheduled for deletion'"`
+	List              audiencesListCmd              `kong:"cmd,help='list audiences',default:'1'"`
+	Create            audiencesCreateCmd            `kong:"cmd,help='create audience'"`
+	UpdateType        audienceUpdateTypeCmd         `kong:"cmd,name='update-type',help='change audience type'"`
+	UpdateClientIDs   audiencesUpdateClientsIDsCmd  `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
+	Delete            audiencesDeleteCmd            `kong:"cmd,help='delete audience and all its keys'"`
+	ListPolicies      audiencesListPoliciesCmd      `kong:"cmd,name='list-policies',help='list audience policies'"`
+	SetPolicy         audiencesSetPolicyCmd         `kong:"cmd,name='set-policy',help='set audience auth policy'"`
+	UpdatePolicy      audiencesUpdatePolicyCmd      `kong:"cmd,name='update-policy',help='modify audience policy api user or groups'"`
+	DeletePolicy      audiencesDeletePolicyCmd      `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
+	Key               audiencesKeyCmd               `kong:"cmd,help='get audience public key'"`
+	ListKeyVersions   audiencesListKeyVersionsCmd   `kong:"cmd,help='list audience key versions'"`
+	CreateKeyVersion  audiencesCreateKeyVersionCmd  `kong:"cmd,help='create a new audience key version'"`
+	DeleteKeyVersion  audiencesDeleteKeyVersionCmd  `kong:"cmd,help='schedule an audience key version for deletion'"`
+	RestoreKeyVersion audiencesRestoreKeyVersionCmd `kong:"cmd,help='restore an audience key version scheduled for deletion'"`
 }
 
 type audiencesListCmd struct{}
@@ -322,13 +322,13 @@ func (c *audiencesListKeyVersionsCmd) Run(cfg *Config) error {
 	return nil
 }
 
-type audienceCreateKeyVersion struct {
+type audiencesCreateKeyVersionCmd struct {
 	URL         string `kong:"required,name='audience-url',help='audience URL'"`
 	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
 	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
 }
 
-func (c *audienceCreateKeyVersion) Run(cfg *Config) error {
+func (c *audiencesCreateKeyVersionCmd) Run(cfg *Config) error {
 	keyName, err := cryptoKeyName(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL)
 	if err != nil {
 		return fmt.Errorf("invalid key name: %w", err)
@@ -346,14 +346,14 @@ func (c *audienceCreateKeyVersion) Run(cfg *Config) error {
 	return nil
 }
 
-type audiencesDeleteKeyVersion struct {
+type audiencesDeleteKeyVersionCmd struct {
 	URL         string `kong:"required,name='audience-url',help='audience URL'"`
 	KeyVersion  int    `kong:"required,name='key-version',help='key version'"`
 	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
 	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
 }
 
-func (c *audiencesDeleteKeyVersion) Run(cfg *Config) error {
+func (c *audiencesDeleteKeyVersionCmd) Run(cfg *Config) error {
 	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL, c.KeyVersion)
 	if err != nil {
 		return fmt.Errorf("invalid key version: %w", err)
@@ -368,14 +368,14 @@ func (c *audiencesDeleteKeyVersion) Run(cfg *Config) error {
 	return nil
 }
 
-type audiencesRestoreKeyVersion struct {
+type audiencesRestoreKeyVersionCmd struct {
 	URL         string `kong:"required,name='audience-url',help='audience URL'"`
 	KeyVersion  int    `kong:"required,name='key-version',help='key version'"`
 	KMSLocation string `kong:"name='kms-location',default='us',help='KMS keyring location'"`
 	KMSKeyring  string `kong:"name='kms-keyring',default='hubauth-audiences-us',help='KMS keyring name'"`
 }
 
-func (c *audiencesRestoreKeyVersion) Run(cfg *Config) error {
+func (c *audiencesRestoreKeyVersionCmd) Run(cfg *Config) error {
 	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, c.KMSLocation, c.KMSKeyring, c.URL, c.KeyVersion)
 	if err != nil {
 		return fmt.Errorf("invalid key version: %w", err)
@@ -385,7 +385,7 @@ func (c *audiencesRestoreKeyVersion) Run(cfg *Config) error {
 		Name: keyVersion,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to restore key version: %w", err)
 	}
 
 	// restored keys are in disabled state, so this enable it
@@ -399,7 +399,7 @@ func (c *audiencesRestoreKeyVersion) Run(cfg *Config) error {
 		},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update key version state: %w", err)
 	}
 
 	return nil

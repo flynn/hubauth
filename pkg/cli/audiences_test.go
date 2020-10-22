@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/cloud/kms/v1"
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
+	fieldmask "google.golang.org/genproto/protobuf/field_mask"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -795,6 +796,249 @@ func TestAudiencesListKeyVersionsErrors(t *testing.T) {
 			}
 
 			cfg.KMS.(*mockKMS).On("ListCryptoKeyVersions", mock.Anything, mock.Anything).Return([]*kmspb.CryptoKeyVersion{{Name: "v1"}}, testCase.ListCryptoKeyVersionsErr)
+			err := cmd.Run(cfg)
+			if testCase.ExpectedErr != nil {
+				require.Equal(t, testCase.ExpectedErr, errors.Unwrap(err))
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestAudiencesCreateKeyVersionCmd(t *testing.T) {
+	cmd := &audiencesCreateKeyVersionCmd{
+		URL:         "https://audience.url",
+		KMSKeyring:  "keyring",
+		KMSLocation: "location",
+	}
+
+	cfg := &Config{
+		KMS:       &mockKMS{},
+		ProjectID: "project-id",
+	}
+
+	keyName, err := cryptoKeyName(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL)
+	require.NoError(t, err)
+
+	now := time.Now()
+	version := &kmspb.CryptoKeyVersion{
+		Name:       "resource/name/5",
+		State:      kms.CryptoKeyVersion_ENABLED,
+		Algorithm:  kms.CryptoKeyVersion_EC_SIGN_P256_SHA256,
+		CreateTime: timestamppb.New(now.Add(-5 * time.Minute)),
+	}
+
+	cfg.KMS.(*mockKMS).On("CreateCryptoKeyVersion", mock.Anything, &kms.CreateCryptoKeyVersionRequest{
+		Parent: keyName,
+	}).Return(version, nil)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	require.NoError(t, cmd.Run(cfg))
+
+	os.Stdout = origStdout
+	buf := make([]byte, 2048)
+	n, err := r.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, version.Name+"\n", string(buf[:n]))
+}
+
+func TestAudiencesCreateKeyVersionErrors(t *testing.T) {
+	testCases := []struct {
+		Desc                      string
+		AudienceURL               string
+		CreateCryptoKeyVersionErr error
+		ExpectedErr               error
+	}{
+		{
+			Desc:        "audience url fail to parse",
+			AudienceURL: "://audience.url",
+		},
+		{
+			Desc:                      "fail to create key",
+			AudienceURL:               "https://audience.url",
+			CreateCryptoKeyVersionErr: errors.New("create key versions error"),
+			ExpectedErr:               errors.New("create key versions error"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			cmd := &audiencesCreateKeyVersionCmd{
+				URL:         testCase.AudienceURL,
+				KMSLocation: "global",
+				KMSKeyring:  "keyring",
+			}
+
+			cfg := &Config{
+				KMS:       &mockKMS{},
+				ProjectID: "projectID",
+			}
+
+			cfg.KMS.(*mockKMS).On("CreateCryptoKeyVersion", mock.Anything, mock.Anything).Return(&kmspb.CryptoKeyVersion{}, testCase.CreateCryptoKeyVersionErr)
+
+			err := cmd.Run(cfg)
+			if testCase.ExpectedErr != nil {
+				require.Equal(t, testCase.ExpectedErr, errors.Unwrap(err))
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestAudiencesDeleteKeyVersionCmd(t *testing.T) {
+	cmd := &audiencesDeleteKeyVersionCmd{
+		URL:         "https://audience.url",
+		KeyVersion:  1,
+		KMSKeyring:  "keyring",
+		KMSLocation: "location",
+	}
+
+	cfg := &Config{
+		KMS:       &mockKMS{},
+		ProjectID: "project-id",
+	}
+
+	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL, cmd.KeyVersion)
+	require.NoError(t, err)
+
+	cfg.KMS.(*mockKMS).On("DestroyCryptoKeyVersion", mock.Anything, &kms.DestroyCryptoKeyVersionRequest{
+		Name: keyVersion,
+	}).Return(&kmspb.CryptoKeyVersion{}, nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudiencesDeleteKeyVersionErrors(t *testing.T) {
+	testCases := []struct {
+		Desc                      string
+		AudienceURL               string
+		DeleteCryptoKeyVersionErr error
+		ExpectedErr               error
+	}{
+		{
+			Desc:        "audience url fail to parse",
+			AudienceURL: "://audience.url",
+		},
+		{
+			Desc:                      "fail to delete key",
+			AudienceURL:               "https://audience.url",
+			DeleteCryptoKeyVersionErr: errors.New("delete key versions error"),
+			ExpectedErr:               errors.New("delete key versions error"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			cmd := &audiencesDeleteKeyVersionCmd{
+				URL:         testCase.AudienceURL,
+				KeyVersion:  12,
+				KMSLocation: "global",
+				KMSKeyring:  "keyring",
+			}
+
+			cfg := &Config{
+				KMS:       &mockKMS{},
+				ProjectID: "projectID",
+			}
+
+			cfg.KMS.(*mockKMS).On("DestroyCryptoKeyVersion", mock.Anything, mock.Anything).Return(&kmspb.CryptoKeyVersion{}, testCase.DeleteCryptoKeyVersionErr)
+
+			err := cmd.Run(cfg)
+			if testCase.ExpectedErr != nil {
+				require.Equal(t, testCase.ExpectedErr, errors.Unwrap(err))
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestAudiencesRestoreKeyVersionCmd(t *testing.T) {
+	cmd := &audiencesRestoreKeyVersionCmd{
+		URL:         "https://audience.url",
+		KeyVersion:  1,
+		KMSKeyring:  "keyring",
+		KMSLocation: "location",
+	}
+
+	cfg := &Config{
+		KMS:       &mockKMS{},
+		ProjectID: "project-id",
+	}
+
+	keyVersion, err := cryptoKeyVersion(cfg.ProjectID, cmd.KMSLocation, cmd.KMSKeyring, cmd.URL, cmd.KeyVersion)
+	require.NoError(t, err)
+
+	key := &kmspb.CryptoKeyVersion{
+		Name: "key123",
+	}
+
+	cfg.KMS.(*mockKMS).On("RestoreCryptoKeyVersion", mock.Anything, &kms.RestoreCryptoKeyVersionRequest{
+		Name: keyVersion,
+	}).Return(key, nil)
+
+	cfg.KMS.(*mockKMS).On("UpdateCryptoKeyVersion", mock.Anything, &kms.UpdateCryptoKeyVersionRequest{
+		CryptoKeyVersion: &kmspb.CryptoKeyVersion{
+			Name:  key.Name,
+			State: kmspb.CryptoKeyVersion_ENABLED,
+		},
+		UpdateMask: &fieldmask.FieldMask{
+			Paths: []string{"state"},
+		},
+	}).Return(&kmspb.CryptoKeyVersion{}, nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudiencesRestoreKeyVersionErrors(t *testing.T) {
+	testCases := []struct {
+		Desc                       string
+		AudienceURL                string
+		RestoreCryptoKeyVersionErr error
+		UpdateCryptoKeyVersionErr  error
+		ExpectedErr                error
+	}{
+		{
+			Desc:        "audience url fail to parse",
+			AudienceURL: "://audience.url",
+		},
+		{
+			Desc:                       "fail to restore key",
+			AudienceURL:                "https://audience.url",
+			RestoreCryptoKeyVersionErr: errors.New("restore key version error"),
+			ExpectedErr:                errors.New("restore key version error"),
+		},
+		{
+			Desc:                      "fail to update key",
+			AudienceURL:               "https://audience.url",
+			UpdateCryptoKeyVersionErr: errors.New("update key version error"),
+			ExpectedErr:               errors.New("update key version error"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			cmd := &audiencesRestoreKeyVersionCmd{
+				URL:         testCase.AudienceURL,
+				KeyVersion:  12,
+				KMSLocation: "global",
+				KMSKeyring:  "keyring",
+			}
+
+			cfg := &Config{
+				KMS:       &mockKMS{},
+				ProjectID: "projectID",
+			}
+
+			cfg.KMS.(*mockKMS).On("RestoreCryptoKeyVersion", mock.Anything, mock.Anything).Return(&kmspb.CryptoKeyVersion{}, testCase.RestoreCryptoKeyVersionErr)
+			cfg.KMS.(*mockKMS).On("UpdateCryptoKeyVersion", mock.Anything, mock.Anything).Return(&kmspb.CryptoKeyVersion{}, testCase.UpdateCryptoKeyVersionErr)
+
 			err := cmd.Run(cfg)
 			if testCase.ExpectedErr != nil {
 				require.Equal(t, testCase.ExpectedErr, errors.Unwrap(err))

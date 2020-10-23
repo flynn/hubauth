@@ -42,7 +42,6 @@ steps:
     '--region', '$_DEPLOY_REGION_PRIMARY',
     '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA',
     '--command', '/app/hubauth-int',
-    '--allow-unauthenticated'
   ]
 substitutions:
     _APP: hubauth

@@ -2,46 +2,67 @@
 
 set -ueo pipefail
 
-KMS_LOCATION="global"
-KMS_KEYRING="hubauth"
-TOKEN_TYPE="Bearer" # || Biscuit
+KMS_LOCATION=${KMS_LOCATION-"global"}
+KMS_KEYRING=${KMS_KEYRING-"hubauth"}
+TOKEN_TYPE=${TOKEN_TYPE-"Bearer"} # || Biscuit
+PROJECT_ID=${PROJECT_ID-""}
 
 EXPECTED_HUBAUTH_EXT_ENV=(
-    # provided by script variables
+    # env provided or script default
     "KMS_LOCATION"
     "KMS_KEYRING"
     "TOKEN_TYPE"
-    # auto populated using gcloud 
+     # env provided or auto populated using gcloud 
     "PROJECT_ID"
+    # auto populated using gcloud 
     "BASE_URL"
     # auto generated kms key if not existing
     "REFRESH_KEY"
     # auto generated secrets if not existing
     "COOKIE_KEY_SECRET"
     "CODE_KEY_SECRET"
-    "BISCUIT_ROOT_PRIVKEY" # only for "Biscuit" token type
+    "BISCUIT_ROOT_PRIVKEY" # only when TOKEN_TYPE == "Biscuit"
     # need user input
     "RP_GOOGLE_CLIENT_ID"
     "RP_GOOGLE_CLIENT_SECRET"
 )
 
 EXPECTED_HUBAUTH_INT_ENV=(
-    # auto populated using gcloud 
+    # env provided or auto populated using gcloud 
     "PROJECT_ID"
 )
 
-if [ $# -lt 2 ] || [ $1 == "-h" ] || [ $1 == "--help" ]; then 
-    echo "Wizard to check and help configuring hubauth-ext service" 
-	echo -e "\nUsage:\n$0 <hubauth-ext | hubauth-int> <REGION> [<PROJECT_ID>] \n" 
+
+case "${TOKEN_TYPE}" in
+"Bearer" | "Biscuit")
+    ;;
+*)
+    echo "invalid TOKEN_TYPE \"${TOKEN_TYPE}\", must be either \"Bearer\" or \"Biscuit\""
+    exit 1
+    ;;
+esac
+
+if [ $# -lt 2 ] || [[ " $@ " =~ "-h" ]] || [[ " $@ " =~ "--help" ]]; then 
+    echo "Wizard to check and configure hubauth services and their GCP dependencies" 
+	echo -e "\nUsage:\n$0 <APP> <REGION> [-h|--help]\n" 
+    echo -e "\nARGUMENTS:"
+    echo -e "\tAPP:         the application to configure (\"hubauth-int\" or \"hubauth-ext\")"
+    echo -e "\tREGION:      a GCP region where the application exists (ie: \"us-central1\")"
+    echo -e "\t-h | --help: print this help"
+    echo -e "\nENV:"
+    echo -e "\tPROJECT_ID   (default to current gcloud active config project)"
+    echo -e "\t             Prompt for confirmation when not specified"
+    echo -e "\tKMS_LOCATION (default to \"${KMS_LOCATION}\")"
+    echo -e "\tKMS_KEYRING  (default to \"${KMS_KEYRING}\")"
+    echo -e "\tTOKEN_TYPE   (default to \"${TOKEN_TYPE}\", accept \"Bearer\" or \"Biscuit\")\n"
     exit 1
 fi
 
 APP=$1
 REGION=$2
-DEFAULT_PROJECT_ID=$(gcloud config get-value project)
-PROJECT_ID=${3-"${DEFAULT_PROJECT_ID}"}
 
-if [ "${PROJECT_ID}" = "${DEFAULT_PROJECT_ID}" ]; then
+if [ -z "${PROJECT_ID}" ]; then
+    PROJECT_ID=$(gcloud config get-value project)
     read -p "Current project: ${PROJECT_ID}, confirm ? [Yn]: " 
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "operation cancelled"

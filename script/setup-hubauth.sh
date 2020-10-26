@@ -30,14 +30,26 @@ EXPECTED_HUBAUTH_INT_ENV=(
     "PROJECT_ID"
 )
 
-if [ $# -lt 2 ]; then 
+if [ $# -lt 2 ] || [ $1 == "-h" ] || [ $1 == "--help" ]; then 
     echo "Wizard to check and help configuring hubauth-ext service" 
-	echo -e "\nUsage:\n$0 [hubauth-ext | hubauth-int] [REGION] \n" 
+	echo -e "\nUsage:\n$0 <hubauth-ext | hubauth-int> <REGION> [<PROJECT_ID>] \n" 
     exit 1
 fi
 
 APP=$1
 REGION=$2
+DEFAULT_PROJECT_ID=$(gcloud config get-value project)
+PROJECT_ID=${3-"${DEFAULT_PROJECT_ID}"}
+
+if [ "${PROJECT_ID}" = "${DEFAULT_PROJECT_ID}" ]; then
+    read -p "Current project: ${PROJECT_ID}, confirm ? [Yn]: " 
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "operation cancelled"
+        exit 0
+    fi
+fi
+
+GCLOUD="gcloud --project ${PROJECT_ID}"
 
 case "${APP}" in
 "hubauth-ext")
@@ -52,7 +64,8 @@ case "${APP}" in
     ;;
 esac
 
-SPECS=$(gcloud run services describe "${APP}-${REGION}" --platform managed --region "${REGION}" --format json)
+
+SPECS=$(${GCLOUD} run services describe "${APP}-${REGION}" --platform managed --region "${REGION}" --format json)
 
 CONTAINER_SPECS=$(echo "${SPECS}" | jq '.spec.template.spec.containers[0]')
 IMAGE=$(echo "${CONTAINER_SPECS}" | jq -r '.image')
@@ -75,16 +88,16 @@ for env in ${EXPECTED_APP_ENV[@]}; do
         value="${TOKEN_TYPE}"
         ;;
     "PROJECT_ID")
-        value=$(gcloud config get-value project)
+        value=${PROJECT_ID}
         ;;
     "BASE_URL")
         value=$(echo "${SPECS}" | jq -r '.status.url // empty')
         ;;
     "COOKIE_KEY_SECRET" | "CODE_KEY_SECRET")
-        value=$(gcloud secrets describe "${env}" --format 'value("name")' || true)
+        value=$(${GCLOUD} secrets describe "${env}" --format 'value("name")' || true)
         if [ -z "${value}" ]; then
-            head -c 32 /dev/random | base64 -w0 | gcloud secrets create ${env} --data-file -
-            value=$(gcloud secrets describe "${env}" --format 'value("name")')
+            head -c 32 /dev/random | base64 -w0 | ${GCLOUD} secrets create ${env} --data-file -
+            value=$(${GCLOUD} secrets describe "${env}" --format 'value("name")')
         fi
         value+="/versions/latest"
         ;;
@@ -92,23 +105,23 @@ for env in ${EXPECTED_APP_ENV[@]}; do
         if [ "${TOKEN_TYPE}" != "Biscuit" ]; then
             continue
         fi
-        value=$(gcloud secrets describe "${env}" --format 'value("name")' || true)
+        value=$(${GCLOUD} secrets describe "${env}" --format 'value("name")' || true)
         if [ -z "${value}" ]; then
-            head -c 32 /dev/random | base64 -w0 | gcloud secrets create ${env} --data-file -
-            value=$(gcloud secrets describe "${env}" --format 'value("name")')
+            head -c 32 /dev/random | base64 -w0 | ${GCLOUD} secrets create ${env} --data-file -
+            value=$(${GCLOUD} secrets describe "${env}" --format 'value("name")')
         fi
         value+="/versions/latest"
         ;;
     "REFRESH_KEY")
-        value=$(gcloud kms keys versions list --key "${env}" --keyring "${KMS_KEYRING}" --location "${KMS_LOCATION}" --format 'value("name")' | sort -r | head -n1 || true)
+        value=$(${GCLOUD} kms keys versions list --key "${env}" --keyring "${KMS_KEYRING}" --location "${KMS_LOCATION}" --format 'value("name")' 2>/dev/null | sort -r | head -n1 || true)
         if [ -z "${value}" ]; then
-            gcloud kms keys create "${env}" \
+            ${GCLOUD} kms keys create "${env}" \
                 --keyring "${KMS_KEYRING}" \
                 --location "${KMS_LOCATION}" \
                 --purpose "asymmetric-signing" \
                 --default-algorithm "ec-sign-p256-sha256" \
                 --protection-level "software"
-            value=$(gcloud kms keys versions list --key "${env}" --keyring "${KMS_KEYRING}" --location "${KMS_LOCATION}" --format 'value("name")')
+            value=$(${GCLOUD} kms keys versions list --key "${env}" --keyring "${KMS_KEYRING}" --location "${KMS_LOCATION}" --format 'value("name")')
         fi
         ;;
     *) # default ask for user input
@@ -124,25 +137,36 @@ done
 
 if [ ${#NEW_ENVS[@]} -gt 0 ]; then
     ENV_STR=$(IFS=,; printf '%s' "${NEW_ENVS[*]}")
-    #echo $ENV_STR
-    gcloud run deploy "${APP}-${REGION}" --platform managed --region "${REGION}" --image "${IMAGE}" --update-env-vars "${ENV_STR}"
+    ${GCLOUD} run deploy "${APP}-${REGION}" --platform managed --region "${REGION}" --image "${IMAGE}" --update-env-vars "${ENV_STR}"
 fi
 
-BASE_URL=$(gcloud run services describe "${APP}-${REGION}" --platform managed --region "${REGION}" --format json | jq -r '.status.url')
+BASE_URL=$(${GCLOUD} run services describe "${APP}-${REGION}" --platform managed --region "${REGION}" --format json | jq -r '.status.url')
 
 # we need a first successful deployment in order to obtain the service URL. 
 # so when it was empty, and the above deploy succeeded, we can immediatly redeploy setting the BASE_URL env
 if [ -z "$(echo ${SPECS} | jq -r '.status.url // empty')" ] && [[ "${EXPECTED_APP_ENV[@]}" =~ "BASE_URL" ]]; then
     echo "just obtained a service url for the first time, setting BASE_URL env variable..."
-    gcloud run deploy "${APP}-${REGION}" --platform managed --region "${REGION}" --image "${IMAGE}" --update-env-vars "BASE_URL=${BASE_URL}"
+    ${GCLOUD} run deploy "${APP}-${REGION}" --platform managed --region "${REGION}" --image "${IMAGE}" --update-env-vars "BASE_URL=${BASE_URL}"
 fi
 
+# Create a scheduler invoking hubauth-int /cron endpoint
+# Using below service account for authentication (or create it if needed)
+SA_NAME="scheduler-runner"
+SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
 if [ ${APP} = "hubauth-int" ] && [ ! -z ${BASE_URL} ]; then
-    EXISTS=$(gcloud scheduler jobs describe "${APP}-${REGION}-CRON" || true)
-    if [ -z ${EXISTS} ]
-        gcloud scheduler jobs create http "${APP}-${REGION}-CRON" \
+    if [ -z "$(${GCLOUD} scheduler jobs describe "${APP}-${REGION}-CRON" 2>/dev/null || true)" ]; then
+        if [ -z "$(${GCLOUD} iam service-accounts describe "${SA_EMAIL}" 2>/dev/null || true)" ]; then
+            ${GCLOUD} iam service-accounts create "${SA_NAME}" --display-name="GCloud Scheduler SA"
+            ${GCLOUD} projects add-iam-policy-binding --quiet "${PROJECT_ID}" --member "serviceAccount:${SA_EMAIL}" --role "roles/run.invoker"
+        fi
+        
+        ${GCLOUD} scheduler jobs create http "${APP}-${REGION}-CRON" \
             --description "sync & cleanup task for hubauth" \
             --schedule "0 */1 * * *" \
             --uri "${BASE_URL}/cron" \
             --http-method "get" \
+            --oidc-service-account-email "${SA_EMAIL}" \
+            --oidc-token-audience "${BASE_URL}"
+    fi
 fi

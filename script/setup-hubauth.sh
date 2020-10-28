@@ -50,11 +50,11 @@ if [ $# -lt 2 ] || [[ " $@ " =~ "-h" ]] || [[ " $@ " =~ "--help" ]]; then
     echo -e "\tREGION:      a GCP region where the application exists (ie: \"us-central1\")"
     echo -e "\t-h | --help: print this help"
     echo -e "\nENV:"
-    echo -e "\tPROJECT_ID   (default to current gcloud active config project)"
-    echo -e "\t             Prompt for confirmation when not specified"
-    echo -e "\tKMS_LOCATION (default to \"${KMS_LOCATION}\")"
-    echo -e "\tKMS_KEYRING  (default to \"${KMS_KEYRING}\")"
-    echo -e "\tTOKEN_TYPE   (default to \"${TOKEN_TYPE}\", accept \"Bearer\" or \"Biscuit\")\n"
+    echo -e "\tPROJECT_ID   (defaults to current gcloud active config project)"
+    echo -e "\t             Prompts for confirmation when not specified"
+    echo -e "\tKMS_LOCATION (defaults to \"${KMS_LOCATION}\")"
+    echo -e "\tKMS_KEYRING  (defaults to \"${KMS_KEYRING}\")"
+    echo -e "\tTOKEN_TYPE   (defaults to \"${TOKEN_TYPE}\", accepts \"Bearer\" or \"Biscuit\")\n"
     exit 1
 fi
 
@@ -164,7 +164,7 @@ fi
 BASE_URL=$(${GCLOUD} run services describe "${APP}-${REGION}" --platform managed --region "${REGION}" --format json | jq -r '.status.url')
 
 # we need a first successful deployment in order to obtain the service URL. 
-# so when it was empty, and the above deploy succeeded, we can immediatly redeploy setting the BASE_URL env
+# so when it was empty, and the above deploy succeeded, we can immediately redeploy setting the BASE_URL env
 if [ -z "$(echo ${SPECS} | jq -r '.status.url // empty')" ] && [[ "${EXPECTED_APP_ENV[@]}" =~ "BASE_URL" ]]; then
     echo "just obtained a service url for the first time, setting BASE_URL env variable..."
     ${GCLOUD} run deploy "${APP}-${REGION}" --platform managed --region "${REGION}" --image "${IMAGE}" --update-env-vars "BASE_URL=${BASE_URL}"
@@ -172,7 +172,7 @@ fi
 
 # Create a scheduler invoking hubauth-int /cron endpoint
 # Using below service account for authentication (or create it if needed)
-SA_NAME="scheduler-runner"
+SA_NAME="hubauth-scheduler"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 if [ ${APP} = "hubauth-int" ] && [ ! -z ${BASE_URL} ]; then

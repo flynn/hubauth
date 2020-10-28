@@ -17,6 +17,8 @@ steps:
     '--image', 'gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',
     '--region', '$_DEPLOY_REGION_PRIMARY',
     '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA',
+    '--command', '/app/hubauth-ext',
+    '--allow-unauthenticated'
   ]
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
   waitFor: ['build']
@@ -27,6 +29,8 @@ steps:
     '--image', 'gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',
     '--region', '$_DEPLOY_REGION_FALLBACK',
     '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA',
+    '--command', '/app/hubauth-ext',
+    '--allow-unauthenticated'
   ]
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
   waitFor: ['build']
@@ -37,6 +41,7 @@ steps:
     '--image', 'gcr.io/$PROJECT_ID/$_APP:$BUILD_ID',
     '--region', '$_DEPLOY_REGION_PRIMARY',
     '--update-env-vars', 'BUILD_REPO=$REPO_NAME,BUILD_REV=$COMMIT_SHA',
+    '--command', '/app/hubauth-int',
   ]
 substitutions:
     _APP: hubauth

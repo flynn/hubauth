@@ -20,8 +20,8 @@ import (
 
 type AudienceKeyNamer func(audience string) (string, error)
 
-// ForcedAudiencesKeyVersion list audienceURL with a key version resource name
-// when provided to an AudienceKeyNameFunc, it allows to override a default audience
+// ForcedAudiencesKeyVersion lists audienceURLs with a key version resource name
+// when provided to an AudienceKeyNameFunc, it allows overriding a default audience
 // key version with the one from the map.
 type ForcedAudiencesKeyVersion map[string]string
 

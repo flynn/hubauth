@@ -29,3 +29,5 @@ require (
 	google.golang.org/grpc v1.34.0
 	google.golang.org/protobuf v1.25.0
 )
+
+replace github.com/flynn/biscuit-go => /home/flavien/workspace/flynn-ws/biscuit-go

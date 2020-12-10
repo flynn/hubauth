@@ -1,0 +1,72 @@
+policy "admin" {
+    rules {
+        *allow_method($0)
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, $0)
+            @   $0 in ["Status"]
+    }
+
+    caveats {[
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+    ||
+        *authorized($0)
+            <-  method(#ambient, $0),
+                env(#ambient, $1)
+            @   $1 in ["DEV", "STG"]
+    ], [
+        *authorized_server($2)
+            <-  service(#ambient, $2)
+            @   prefix($2, "demo.api.v1")
+    ]}
+}
+
+policy "auditor" {
+    caveats {[
+        *allow_dev()
+            <-  arg(#ambient, "env", "DEV")
+    ]}
+}
+
+policy "developer" {
+    rules {
+        *allow_method("Status")
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, "Status")
+        *allow_method($0)
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, $0),
+                arg(#ambient, "env", "DEV")
+            @   $0 in ["Create", "Delete", "Read", "Status", "Update"]
+        *allow_method($0)
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, $0),
+                arg(#ambient, "env", $1)
+            @   $0 in ["Read"],
+                $1 in ["DEV"]
+        *allow_method("Read")
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, "Read"),
+                arg(#ambient, "env", "PRD"),
+                arg(#ambient, "entities.name", $3)
+            @   $3 in ["entity1", "entity2", "entity3"]
+    }
+
+    caveats {[
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+    ]}
+}
+
+policy "guest" {
+    rules {
+        *allow_method("Status")
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, "Status")
+    }
+
+    caveats {[
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+    ]}
+}

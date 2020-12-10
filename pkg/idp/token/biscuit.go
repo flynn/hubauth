@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/flynn/biscuit-go"
 	"github.com/flynn/biscuit-go/cookbook/signedbiscuit"
 	"github.com/flynn/biscuit-go/sig"
 	"github.com/flynn/hubauth/pkg/kmssign"
@@ -43,7 +44,17 @@ func (b *biscuitBuilder) Build(ctx context.Context, audience string, t *AccessTo
 		IssueTime: t.IssueTime,
 	}
 
-	return signedbiscuit.GenerateSignable(b.rootKeyPair, audience, audienceKey, t.UserPublicKey, t.ExpireTime, meta)
+	builder := biscuit.NewBuilder(b.rootKeyPair)
+	builder, err := signedbiscuit.WithSignableFacts(builder, audience, audienceKey, t.UserPublicKey, t.ExpireTime, meta)
+	if err != nil {
+		return nil, err
+	}
+
+	bisc, err := builder.Build()
+	if err != nil {
+		return nil, err
+	}
+	return bisc.Serialize()
 }
 
 func (b *biscuitBuilder) TokenType() string {

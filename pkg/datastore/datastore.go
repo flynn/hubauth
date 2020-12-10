@@ -21,6 +21,7 @@ const (
 	kindDomain            = "GoogleDomain"
 	kindCachedGroup       = "CachedGoogleGroup"
 	kindCachedGroupMember = "CachedGoogleGroupMember"
+	kindBiscuitPolicy     = "BiscuitPolicy"
 )
 
 func New(db *datastore.Client) hubauth.DataStore {

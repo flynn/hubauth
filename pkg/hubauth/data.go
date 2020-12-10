@@ -24,6 +24,7 @@ type DataStore interface {
 	CodeStore
 	RefreshTokenStore
 	CachedGroupStore
+	BiscuitPolicyStore
 }
 
 type ClientStore interface {
@@ -261,4 +262,34 @@ func GetClientInfo(ctx context.Context) *ClientInfo {
 		return nil
 	}
 	return res
+}
+
+type BiscuitPolicyStore interface {
+	GetBiscuitPolicy(ctx context.Context, id string) (*BiscuitPolicy, error)
+	CreateBiscuitPolicy(ctx context.Context, policy *BiscuitPolicy) (string, error)
+	MutateBiscuitPolicy(ctx context.Context, id string, mut []*BiscuitPolicyMutation) error
+	ListBiscuitPolicies(ctx context.Context) ([]*BiscuitPolicy, error)
+	DeleteBiscuitPolicy(ctx context.Context, id string) error
+}
+
+type BiscuitPolicy struct {
+	ID         string
+	Content    string
+	Groups     []string
+	CreateTime time.Time
+	UpdateTime time.Time
+}
+
+type BiscuitPolicyMutationOp byte
+
+const (
+	BiscuitPolicyMutationOpAddGroup BiscuitPolicyMutationOp = iota
+	BiscuitPolicyMutationOpDeleteGroup
+	BiscuitPolicyMutationOpSetContent
+)
+
+type BiscuitPolicyMutation struct {
+	Op BiscuitPolicyMutationOp
+
+	Group string
 }

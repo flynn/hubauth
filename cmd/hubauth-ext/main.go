@@ -90,7 +90,7 @@ func main() {
 		}
 
 		rootPubKey = biscuitKey.Public().Bytes()
-		accessTokenBuilder = token.NewBiscuitBuilder(kmsClient, audienceKeyNamer, biscuitKey)
+		accessTokenBuilder = token.NewBiscuitBuilder(kmsClient, datastore.New(dsClient), audienceKeyNamer, biscuitKey)
 	default:
 		log.Fatalf("invalid TOKEN_TYPE, must be one of: Bearer, Biscuit")
 	}

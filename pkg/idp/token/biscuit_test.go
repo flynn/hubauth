@@ -12,9 +12,38 @@ import (
 
 	"github.com/flynn/biscuit-go"
 	"github.com/flynn/biscuit-go/sig"
+	"github.com/flynn/hubauth/pkg/hubauth"
 	"github.com/flynn/hubauth/pkg/kmssign/kmssim"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+type mockPolicyStore struct {
+	mock.Mock
+}
+
+var _ hubauth.BiscuitPolicyStore = (*mockPolicyStore)(nil)
+
+func (m *mockPolicyStore) GetBiscuitPolicy(ctx context.Context, id string) (*hubauth.BiscuitPolicy, error) {
+	args := m.Called(ctx, id)
+	return args.Get(0).(*hubauth.BiscuitPolicy), args.Error(1)
+}
+func (m *mockPolicyStore) CreateBiscuitPolicy(ctx context.Context, policy *hubauth.BiscuitPolicy) (string, error) {
+	args := m.Called(ctx, policy)
+	return args.String(0), args.Error(1)
+}
+func (m *mockPolicyStore) MutateBiscuitPolicy(ctx context.Context, id string, mut []*hubauth.BiscuitPolicyMutation) error {
+	args := m.Called(ctx, id, mut)
+	return args.Error(0)
+}
+func (m *mockPolicyStore) ListBiscuitPolicies(ctx context.Context) ([]*hubauth.BiscuitPolicy, error) {
+	args := m.Called(ctx)
+	return args.Get(1).([]*hubauth.BiscuitPolicy), args.Error(1)
+}
+func (m *mockPolicyStore) DeleteBiscuitPolicy(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
 
 func TestBiscuitBuilder(t *testing.T) {
 	audience := "https://audience.url"
@@ -22,7 +51,9 @@ func TestBiscuitBuilder(t *testing.T) {
 	kmsClient := kmssim.NewClient([]string{audienceKeyName})
 	rootKeyPair := sig.GenerateKeypair(rand.Reader)
 
-	builder := NewBiscuitBuilder(kmsClient, audienceKeyNamer, rootKeyPair)
+	policyStore := new(mockPolicyStore)
+
+	builder := NewBiscuitBuilder(kmsClient, policyStore, audienceKeyNamer, rootKeyPair)
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)

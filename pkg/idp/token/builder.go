@@ -9,6 +9,7 @@ type AccessTokenData struct {
 	ClientID      string
 	UserID        string
 	UserEmail     string
+	UserGroups    []string
 	UserPublicKey []byte
 	IssueTime     time.Time
 	ExpireTime    time.Time

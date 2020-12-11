@@ -35,7 +35,7 @@ func (clockImpl) Now() time.Time {
 }
 
 type idpSteps interface {
-	VerifyAudience(ctx context.Context, audienceURL, clientID, userID string) error
+	VerifyAudience(ctx context.Context, audienceURL, clientID, userID string) ([]string, error)
 	VerifyUserGroups(ctx context.Context, userID string) error
 
 	CreateCode(ctx context.Context, code *hubauth.Code) (string, string, error)
@@ -277,8 +277,10 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		return err
 	})
 
-	g.Go(func() error {
-		return s.steps.VerifyAudience(ctx, req.Audience, req.ClientID, codeInfo.UserId)
+	var userGroups []string
+	g.Go(func() (err error) {
+		userGroups, err = s.steps.VerifyAudience(ctx, req.Audience, req.ClientID, codeInfo.UserId)
+		return err
 	})
 
 	var client *hubauth.Client
@@ -303,19 +305,20 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		return err
 	})
 
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// build access token
 	var accessToken string
 	var tokenType string
-	g.Go(func() (err error) {
-		if req.Audience == "" {
-			return nil
-		}
-
+	if req.Audience != "" {
 		var userPublicKey []byte
 		if len(req.UserPublicKey) > 0 {
 			var err error
 			userPublicKey, err = base64Decode(req.UserPublicKey)
 			if err != nil {
-				return fmt.Errorf("idp: invalid public key: %v", err)
+				return nil, fmt.Errorf("idp: invalid public key: %v", err)
 			}
 		}
 
@@ -324,14 +327,13 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			UserID:        codeInfo.UserId,
 			UserEmail:     codeInfo.UserEmail,
 			UserPublicKey: userPublicKey,
+			UserGroups:    userGroups,
 			IssueTime:     now,
 			ExpireTime:    now.Add(accessTokenDuration),
 		})
-		return err
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	res := &hubauth.AccessToken{
@@ -343,6 +345,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 		RefreshTokenExpiresIn: int(client.RefreshTokenExpiry / time.Second),
 		RefreshTokenIssueTime: now,
 	}
+
 	if res.AccessToken == "" {
 		// if no audience was provided, provide a refresh token that can be used to to access /audiences
 		res.TokenType = "RefreshToken"
@@ -363,8 +366,10 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 
 	g, ctx := errgroup.WithContext(ctx)
 
-	g.Go(func() error {
-		return s.steps.VerifyAudience(ctx, req.Audience, req.ClientID, oldToken.UserID)
+	var userGroups []string
+	g.Go(func() (err error) {
+		userGroups, err = s.steps.VerifyAudience(ctx, req.Audience, req.ClientID, oldToken.UserID)
+		return err
 	})
 
 	now := s.clock.Now()
@@ -390,19 +395,19 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 		return err
 	})
 
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
 	var accessToken string
 	var tokenType string
-	g.Go(func() (err error) {
-		if req.Audience == "" {
-			return nil
-		}
-
+	if req.Audience != "" {
 		var userPublicKey []byte
 		if len(req.UserPublicKey) > 0 {
 			var err error
 			userPublicKey, err = base64Decode(req.UserPublicKey)
 			if err != nil {
-				return fmt.Errorf("idp: invalid public key: %v", err)
+				return nil, fmt.Errorf("idp: invalid public key: %v", err)
 			}
 		}
 
@@ -410,15 +415,14 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			ClientID:      req.ClientID,
 			UserID:        oldToken.UserID,
 			UserEmail:     oldToken.UserEmail,
+			UserGroups:    userGroups,
 			UserPublicKey: userPublicKey,
 			IssueTime:     now,
 			ExpireTime:    now.Add(accessTokenDuration),
 		})
-		return err
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	res := &hubauth.AccessToken{

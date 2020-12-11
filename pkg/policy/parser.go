@@ -55,6 +55,7 @@ func (d *DocumentPolicy) BiscuitCaveats() ([]biscuit.Caveat, error) {
 }
 
 var documentParser = participle.MustBuild(&Document{}, defaultParserOptions...)
+var documentPolicyParser = participle.MustBuild(&DocumentPolicy{}, defaultParserOptions...)
 
 func Parse(r io.Reader) (*Document, error) {
 	return ParseNamed("policy", r)
@@ -74,4 +75,16 @@ func ParseNamed(filename string, r io.Reader) (*Document, error) {
 	}
 
 	return parsed, nil
+}
+
+func ParseDocumentPolicy(r io.Reader) (*DocumentPolicy, error) {
+	return ParseNamedDocumentPolicy("policy", r)
+}
+
+func ParseNamedDocumentPolicy(name string, r io.Reader) (*DocumentPolicy, error) {
+	p := &DocumentPolicy{}
+	if err := documentPolicyParser.Parse(name, r, p); err != nil {
+		return nil, err
+	}
+	return p, nil
 }

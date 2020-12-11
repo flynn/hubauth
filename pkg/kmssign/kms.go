@@ -18,15 +18,28 @@ import (
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
 
-type AudienceKeyNamer func(audience string) string
+type AudienceKeyNamer func(audience string) (string, error)
 
-func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) string {
-	return func(aud string) string {
+// ForcedAudiencesKeyVersion lists audienceURLs with a key version resource name
+// when provided to an AudienceKeyNameFunc, it allows overriding a default audience
+// key version with the one from the map.
+type ForcedAudiencesKeyVersion map[string]string
+
+// AudienceKeyNameFunc returns the GCP KMS resource name of the audience key.
+// The default version returned is 1, and it can be overridden by adding the audience URL
+// and the new key to the ForcedAudiencesKeyVersion map.
+func AudienceKeyNameFunc(forcedAudiencesKeyVersion ForcedAudiencesKeyVersion, projectID, location, keyRing string) func(string) (string, error) {
+	return func(aud string) (string, error) {
 		u, err := url.Parse(aud)
 		if err != nil {
-			return ""
+			return "", err
 		}
-		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1))
+
+		if keyName, ok := forcedAudiencesKeyVersion[aud]; ok {
+			return keyName, nil
+		}
+
+		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1)), nil
 	}
 }
 

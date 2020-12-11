@@ -165,7 +165,7 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					aud.Policies = aud.Policies[:len(aud.Policies)-1]
 					modified = true
 				}
-			case hubauth.AudienceMutationSetType:
+			case hubauth.AudienceMutationOpSetType:
 				if aud.Type == m.Type {
 					continue
 				}

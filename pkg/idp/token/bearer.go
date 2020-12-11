@@ -26,7 +26,11 @@ func NewBearerBuilder(kms kmssign.KMSClient, audienceKey kmssign.AudienceKeyName
 }
 
 func (b *bearerBuilder) Build(ctx context.Context, audience string, t *AccessTokenData) ([]byte, error) {
-	signKey := kmssign.NewPrivateKey(b.kms, b.audienceKey(audience), crypto.SHA256)
+	keyName, err := b.audienceKey(audience)
+	if err != nil {
+		return nil, fmt.Errorf("token: failed to get audience key name: %w", err)
+	}
+	signKey := kmssign.NewPrivateKey(b.kms, keyName, crypto.SHA256)
 
 	exp, _ := ptypes.TimestampProto(t.ExpireTime)
 	iss, _ := ptypes.TimestampProto(t.IssueTime)

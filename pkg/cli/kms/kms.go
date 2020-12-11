@@ -15,7 +15,10 @@ type Client interface {
 	GetPublicKey(context.Context, *kmspb.GetPublicKeyRequest, ...gax.CallOption) (*kmspb.PublicKey, error)
 	// ListCryptoKeyVersions differs from google KMS client interface to get rid of their *kms.CryptoKeyVersionIterator
 	ListCryptoKeyVersions(context.Context, *kmspb.ListCryptoKeyVersionsRequest, ...gax.CallOption) ([]*kmspb.CryptoKeyVersion, error)
+	CreateCryptoKeyVersion(ctx context.Context, req *kmspb.CreateCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error)
 	DestroyCryptoKeyVersion(context.Context, *kmspb.DestroyCryptoKeyVersionRequest, ...gax.CallOption) (*kmspb.CryptoKeyVersion, error)
+	RestoreCryptoKeyVersion(ctx context.Context, req *kmspb.RestoreCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error)
+	UpdateCryptoKeyVersion(ctx context.Context, req *kmspb.UpdateCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error)
 }
 
 type kms struct {
@@ -57,4 +60,16 @@ func (k *kms) ListCryptoKeyVersions(ctx context.Context, req *kmspb.ListCryptoKe
 
 func (k *kms) DestroyCryptoKeyVersion(ctx context.Context, req *kmspb.DestroyCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
 	return k.c.DestroyCryptoKeyVersion(ctx, req, opts...)
+}
+
+func (k *kms) CreateCryptoKeyVersion(ctx context.Context, req *kmspb.CreateCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+	return k.c.CreateCryptoKeyVersion(ctx, req, opts...)
+}
+
+func (k *kms) RestoreCryptoKeyVersion(ctx context.Context, req *kmspb.RestoreCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+	return k.c.RestoreCryptoKeyVersion(ctx, req, opts...)
+}
+
+func (k *kms) UpdateCryptoKeyVersion(ctx context.Context, req *kmspb.UpdateCryptoKeyVersionRequest, opts ...gax.CallOption) (*kmspb.CryptoKeyVersion, error) {
+	return k.c.UpdateCryptoKeyVersion(ctx, req, opts...)
 }

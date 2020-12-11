@@ -34,7 +34,11 @@ func (b *biscuitBuilder) Build(ctx context.Context, audience string, t *AccessTo
 	if len(t.UserPublicKey) == 0 {
 		return nil, ErrPublicKeyRequired
 	}
-	audienceKey := kmssign.NewPrivateKey(b.kms, b.audienceKey(audience), crypto.SHA256)
+	keyName, err := b.audienceKey(audience)
+	if err != nil {
+		return nil, fmt.Errorf("token: failed to get audience key name: %w", err)
+	}
+	audienceKey := kmssign.NewPrivateKey(b.kms, keyName, crypto.SHA256)
 
 	meta := &signedbiscuit.Metadata{
 		ClientID:  t.ClientID,

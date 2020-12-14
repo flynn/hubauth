@@ -91,7 +91,7 @@ const (
 	AudienceMutationOpSetPolicy
 	AudienceMutationOpDeletePolicy
 	AudienceMutationSetType
-	AudienceMutationMigratePolicy
+	AudienceMutationCleanupPolicyMigration
 )
 
 type AudienceMutation struct {

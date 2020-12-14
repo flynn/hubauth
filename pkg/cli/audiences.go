@@ -15,17 +15,17 @@ import (
 )
 
 type audiencesCmd struct {
-	List            audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
-	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
-	UpdateType      audienceUpdateTypeCmd        `kong:"cmd,name='update-type',help='change audience type'"`
-	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
-	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience and all its keys'"`
-	ListPolicies    audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
-	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
-	UpdatePolicy    audiencesUpdatePolicyCmd     `kong:"cmd,name='update-policy',help='modify audience policy api user or groups'"`
-	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
-	Key             audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
-	MigratePolicies audienceMigratePoliciesCmd   `kong:"cmd,help='migrate audience policies to user groups'"`
+	List                   audiencesListCmd                  `kong:"cmd,help='list audiences',default:'1'"`
+	Create                 audiencesCreateCmd                `kong:"cmd,help='create audience'"`
+	UpdateType             audienceUpdateTypeCmd             `kong:"cmd,name='update-type',help='change audience type'"`
+	UpdateClientIDs        audiencesUpdateClientsIDsCmd      `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
+	Delete                 audiencesDeleteCmd                `kong:"cmd,help='delete audience and all its keys'"`
+	ListPolicies           audiencesListPoliciesCmd          `kong:"cmd,name='list-policies',help='list audience policies'"`
+	SetPolicy              audiencesSetPolicyCmd             `kong:"cmd,name='set-policy',help='set audience auth policy'"`
+	UpdatePolicy           audiencesUpdatePolicyCmd          `kong:"cmd,name='update-policy',help='modify audience policy api user or groups'"`
+	DeletePolicy           audiencesDeletePolicyCmd          `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
+	Key                    audiencesKeyCmd                   `kong:"cmd,help='get audience public key'"`
+	MigratePoliciesCleanup audienceMigratePoliciesCleanupCmd `kong:"cmd,help='cleanup audience policies migration'"`
 }
 
 type audiencesListCmd struct{}
@@ -287,10 +287,10 @@ func (c *audiencesKeyCmd) Run(cfg *Config) error {
 	return nil
 }
 
-type audienceMigratePoliciesCmd struct {
+type audienceMigratePoliciesCleanupCmd struct {
 }
 
-func (c *audienceMigratePoliciesCmd) Run(cfg *Config) error {
+func (c *audienceMigratePoliciesCleanupCmd) Run(cfg *Config) error {
 	ctx := context.Background()
 
 	policies, err := cfg.DB.ListAudiences(ctx)
@@ -300,7 +300,7 @@ func (c *audienceMigratePoliciesCmd) Run(cfg *Config) error {
 
 	for _, p := range policies {
 		err = cfg.DB.MutateAudience(ctx, p.URL, []*hubauth.AudienceMutation{{
-			Op: hubauth.AudienceMutationMigratePolicy,
+			Op: hubauth.AudienceMutationCleanupPolicyMigration,
 		}})
 		if err != nil {
 			return fmt.Errorf("Failed to migrate policies to userGroups for audience %q", p.URL)

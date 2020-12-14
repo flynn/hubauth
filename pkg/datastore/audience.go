@@ -147,19 +147,19 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					aud.ClientIDs = aud.ClientIDs[:len(aud.ClientIDs)-1]
 					modified = true
 				}
-			case hubauth.AudienceMutationOpSetPolicy:
+			case hubauth.AudienceMutationOpSetUserGroups:
 				for i, p := range aud.UserGroups {
-					if p.Domain == m.Policy.Domain {
-						aud.UserGroups[i] = buildGoogleUserGroups(&m.Policy)
+					if p.Domain == m.UserGroups.Domain {
+						aud.UserGroups[i] = buildGoogleUserGroups(&m.UserGroups)
 						modified = true
 						continue outer
 					}
 				}
-				aud.UserGroups = append(aud.UserGroups, buildGoogleUserGroups(&m.Policy))
+				aud.UserGroups = append(aud.UserGroups, buildGoogleUserGroups(&m.UserGroups))
 				modified = true
-			case hubauth.AudienceMutationOpDeletePolicy:
+			case hubauth.AudienceMutationOpDeleteUserGroups:
 				for i, p := range aud.UserGroups {
-					if p.Domain != m.Policy.Domain {
+					if p.Domain != m.UserGroups.Domain {
 						continue
 					}
 					aud.UserGroups[i] = aud.UserGroups[len(aud.UserGroups)-1]
@@ -189,12 +189,12 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 	return nil
 }
 
-func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain string, mut []*hubauth.AudiencePolicyMutation) error {
-	ctx, span := trace.StartSpan(ctx, "datastore.MutateAudiencePolicy")
+func (s *service) MutateAudienceUserGroups(ctx context.Context, url string, domain string, mut []*hubauth.AudienceUserGroupsMutation) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.MutateAudienceUserGroups")
 	span.AddAttributes(
 		trace.StringAttribute("audience_url", url),
-		trace.StringAttribute("audience_policy_domain", domain),
-		trace.Int64Attribute("audience_policy_mutation_count", int64(len(mut))),
+		trace.StringAttribute("audience_usergroups_domain", domain),
+		trace.Int64Attribute("audience_usergroups_mutation_count", int64(len(mut))),
 	)
 	defer span.End()
 
@@ -223,7 +223,7 @@ func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain s
 	outer:
 		for _, m := range mut {
 			switch m.Op {
-			case hubauth.AudiencePolicyMutationOpAddGroup:
+			case hubauth.AudienceUserGroupsMutationOpAddGroup:
 				groups := strings.Split(userGroups.Groups, ",")
 				for _, g := range groups {
 					if g == m.Group {
@@ -232,7 +232,7 @@ func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain s
 				}
 				userGroups.Groups = strings.Join(append(groups, m.Group), ",")
 				modified = true
-			case hubauth.AudiencePolicyMutationOpDeleteGroup:
+			case hubauth.AudienceUserGroupsMutationOpDeleteGroup:
 				groups := strings.Split(userGroups.Groups, ",")
 				for i, g := range groups {
 					if g != m.Group {
@@ -243,14 +243,14 @@ func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain s
 				}
 				userGroups.Groups = strings.Join(groups, ",")
 				modified = true
-			case hubauth.AudiencePolicyMutationOpSetAPIUser:
+			case hubauth.AudienceUserGroupsMutationOpSetAPIUser:
 				if userGroups.APIUser == m.APIUser {
 					continue
 				}
 				userGroups.APIUser = m.APIUser
 				modified = true
 			default:
-				return fmt.Errorf("datastore: unknown audience policy mutation op %s", m.Op)
+				return fmt.Errorf("datastore: unknown audience usergroups mutation op %s", m.Op)
 			}
 		}
 		if !modified {

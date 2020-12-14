@@ -15,16 +15,16 @@ import (
 )
 
 type audiencesCmd struct {
-	List            audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
-	Create          audiencesCreateCmd           `kong:"cmd,help='create audience'"`
-	UpdateType      audienceUpdateTypeCmd        `kong:"cmd,name='update-type',help='change audience type'"`
-	UpdateClientIDs audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
-	Delete          audiencesDeleteCmd           `kong:"cmd,help='delete audience and all its keys'"`
-	ListPolicies    audiencesListPoliciesCmd     `kong:"cmd,name='list-policies',help='list audience policies'"`
-	SetPolicy       audiencesSetPolicyCmd        `kong:"cmd,name='set-policy',help='set audience auth policy'"`
-	UpdatePolicy    audiencesUpdatePolicyCmd     `kong:"cmd,name='update-policy',help='modify audience policy api user or groups'"`
-	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
-	Key             audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
+	List             audiencesListCmd             `kong:"cmd,help='list audiences',default:'1'"`
+	Create           audiencesCreateCmd           `kong:"cmd,help='create audience'"`
+	UpdateType       audienceUpdateTypeCmd        `kong:"cmd,name='update-type',help='change audience type'"`
+	UpdateClientIDs  audiencesUpdateClientsIDsCmd `kong:"cmd,name='update-client-ids',help='add or remove audience client IDs'"`
+	Delete           audiencesDeleteCmd           `kong:"cmd,help='delete audience and all its keys'"`
+	ListUserGroups   audiencesListUserGroupsCmd   `kong:"cmd,name='list-user-groups',help='list audience user groups'"`
+	SetUserGroups    audiencesSetUserGroupsCmd    `kong:"cmd,name='set-user-groups',help='set audience auth user groups'"`
+	UpdateUserGroups audiencesUpdateUserGroupsCmd `kong:"cmd,name='update-user-groups',help='modify audience user groups api user or groups'"`
+	DeleteUserGroups audiencesDeleteUserGroupsCmd `kong:"cmd,name='delete-user-groups',help='delete audience auth user groups'"`
+	Key              audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
 }
 
 type audiencesListCmd struct{}
@@ -168,11 +168,11 @@ func (c *audiencesDeleteCmd) Run(cfg *Config) error {
 	return cfg.DB.DeleteAudience(context.Background(), c.AudienceURL)
 }
 
-type audiencesListPoliciesCmd struct {
+type audiencesListUserGroupsCmd struct {
 	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
 }
 
-func (c *audiencesListPoliciesCmd) Run(cfg *Config) error {
+func (c *audiencesListUserGroupsCmd) Run(cfg *Config) error {
 	audience, err := cfg.DB.GetAudience(context.Background(), c.AudienceURL)
 	if err != nil {
 		return err
@@ -188,17 +188,17 @@ func (c *audiencesListPoliciesCmd) Run(cfg *Config) error {
 	return nil
 }
 
-type audiencesSetPolicyCmd struct {
+type audiencesSetUserGroupsCmd struct {
 	AudienceURL string   `kong:"required,name='audience-url',help='audience URL'"`
 	Domain      string   `kong:"required,help='G Suite domain name'"`
 	APIUser     string   `kong:"required,name='api-user',help='G Suite user email to impersonate for API calls'"`
 	Groups      []string `kong:"required,help='comma-separated group IDs'"`
 }
 
-func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
+func (c *audiencesSetUserGroupsCmd) Run(cfg *Config) error {
 	mut := &hubauth.AudienceMutation{
-		Op: hubauth.AudienceMutationOpSetPolicy,
-		Policy: hubauth.GoogleUserGroups{
+		Op: hubauth.AudienceMutationOpSetUserGroups,
+		UserGroups: hubauth.GoogleUserGroups{
 			Domain:  c.Domain,
 			APIUser: c.APIUser,
 			Groups:  c.Groups,
@@ -207,7 +207,7 @@ func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})
 }
 
-type audiencesUpdatePolicyCmd struct {
+type audiencesUpdateUserGroupsCmd struct {
 	AudienceURL  string   `kong:"required,name='audience-url',help='audience URL'"`
 	Domain       string   `kong:"required,help='G Suite domain name'"`
 	APIUser      string   `kong:"name='api-user',help='G Suite user email to impersonate for API calls'"`
@@ -215,39 +215,39 @@ type audiencesUpdatePolicyCmd struct {
 	DeleteGroups []string `kong:"name='delete-groups',help='comma-separated group IDs to delete'"`
 }
 
-func (c *audiencesUpdatePolicyCmd) Run(cfg *Config) error {
-	var muts []*hubauth.AudiencePolicyMutation
+func (c *audiencesUpdateUserGroupsCmd) Run(cfg *Config) error {
+	var muts []*hubauth.AudienceUserGroupsMutation
 	for _, groupID := range c.AddGroups {
-		muts = append(muts, &hubauth.AudiencePolicyMutation{
-			Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+		muts = append(muts, &hubauth.AudienceUserGroupsMutation{
+			Op:    hubauth.AudienceUserGroupsMutationOpAddGroup,
 			Group: groupID,
 		})
 	}
 	for _, groupID := range c.DeleteGroups {
-		muts = append(muts, &hubauth.AudiencePolicyMutation{
-			Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+		muts = append(muts, &hubauth.AudienceUserGroupsMutation{
+			Op:    hubauth.AudienceUserGroupsMutationOpDeleteGroup,
 			Group: groupID,
 		})
 	}
 	if c.APIUser != "" {
-		muts = append(muts, &hubauth.AudiencePolicyMutation{
-			Op:      hubauth.AudiencePolicyMutationOpSetAPIUser,
+		muts = append(muts, &hubauth.AudienceUserGroupsMutation{
+			Op:      hubauth.AudienceUserGroupsMutationOpSetAPIUser,
 			APIUser: c.APIUser,
 		})
 	}
 
-	return cfg.DB.MutateAudiencePolicy(context.Background(), c.AudienceURL, c.Domain, muts)
+	return cfg.DB.MutateAudienceUserGroups(context.Background(), c.AudienceURL, c.Domain, muts)
 }
 
-type audiencesDeletePolicyCmd struct {
+type audiencesDeleteUserGroupsCmd struct {
 	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
 	Domain      string `kong:"required,help='G Suite domain name'"`
 }
 
-func (c *audiencesDeletePolicyCmd) Run(cfg *Config) error {
+func (c *audiencesDeleteUserGroupsCmd) Run(cfg *Config) error {
 	mut := &hubauth.AudienceMutation{
-		Op: hubauth.AudienceMutationOpDeletePolicy,
-		Policy: hubauth.GoogleUserGroups{
+		Op: hubauth.AudienceMutationOpDeleteUserGroups,
+		UserGroups: hubauth.GoogleUserGroups{
 			Domain: c.Domain,
 		},
 	}

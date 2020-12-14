@@ -20,7 +20,7 @@ func TestAudienceCRD(t *testing.T) {
 		Name:      "Test Cluster",
 		Type:      "flynn_controller",
 		ClientIDs: []string{"a"},
-		Policies: []*hubauth.GoogleUserPolicy{
+		UserGroups: []*hubauth.GoogleUserGroups{
 			{
 				Domain:  "example.com",
 				APIUser: "user@example.com",
@@ -66,7 +66,7 @@ func TestAudienceEmptyGroups(t *testing.T) {
 		Name:      "Test Cluster",
 		Type:      "flynn_controller",
 		ClientIDs: []string{"a"},
-		Policies: []*hubauth.GoogleUserPolicy{
+		UserGroups: []*hubauth.GoogleUserGroups{
 			{
 				Domain:  "example.com",
 				APIUser: "user@example.com",
@@ -79,7 +79,7 @@ func TestAudienceEmptyGroups(t *testing.T) {
 
 	got, err := s.GetAudience(ctx, a.URL)
 	require.NoError(t, err)
-	require.Equal(t, 0, len(got.Policies[0].Groups))
+	require.Equal(t, 0, len(got.UserGroups[0].Groups))
 }
 
 func TestAudienceListForClientID(t *testing.T) {
@@ -215,7 +215,7 @@ func TestAudienceMutate(t *testing.T) {
 			mut: []*hubauth.AudienceMutation{
 				{
 					Op: hubauth.AudienceMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
+					Policy: hubauth.GoogleUserGroups{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
 						APIUser: "foo",
@@ -223,13 +223,13 @@ func TestAudienceMutate(t *testing.T) {
 				},
 			},
 			before: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
 			after: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
 				},
@@ -240,7 +240,7 @@ func TestAudienceMutate(t *testing.T) {
 			mut: []*hubauth.AudienceMutation{
 				{
 					Op: hubauth.AudienceMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
+					Policy: hubauth.GoogleUserGroups{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
 						APIUser: "foo",
@@ -249,7 +249,7 @@ func TestAudienceMutate(t *testing.T) {
 			},
 			before: &hubauth.Audience{},
 			after: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
 				},
 			},
@@ -259,7 +259,7 @@ func TestAudienceMutate(t *testing.T) {
 			mut: []*hubauth.AudienceMutation{
 				{
 					Op: hubauth.AudienceMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
+					Policy: hubauth.GoogleUserGroups{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
 						APIUser: "foo",
@@ -267,12 +267,12 @@ func TestAudienceMutate(t *testing.T) {
 				},
 			},
 			before: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 				},
 			},
 			after: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
 				},
@@ -283,17 +283,17 @@ func TestAudienceMutate(t *testing.T) {
 			mut: []*hubauth.AudienceMutation{
 				{
 					Op:     hubauth.AudienceMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "example.com"},
+					Policy: hubauth.GoogleUserGroups{Domain: "example.com"},
 				},
 			},
 			before: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
 			after: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "a.com", Groups: []string{"foo"}, APIUser: "example"},
 				},
 			},
@@ -303,11 +303,11 @@ func TestAudienceMutate(t *testing.T) {
 			mut: []*hubauth.AudienceMutation{
 				{
 					Op:     hubauth.AudienceMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "example.com"},
+					Policy: hubauth.GoogleUserGroups{Domain: "example.com"},
 				},
 			},
 			before: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
@@ -318,16 +318,16 @@ func TestAudienceMutate(t *testing.T) {
 			mut: []*hubauth.AudienceMutation{
 				{
 					Op:     hubauth.AudienceMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "a.com"},
+					Policy: hubauth.GoogleUserGroups{Domain: "a.com"},
 				},
 			},
 			before: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
 			after: &hubauth.Audience{
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "example.com", Groups: []string{"old"}, APIUser: "other"},
 				},
 			},
@@ -337,7 +337,7 @@ func TestAudienceMutate(t *testing.T) {
 			mut: []*hubauth.AudienceMutation{
 				{
 					Op:     hubauth.AudienceMutationOpDeletePolicy,
-					Policy: hubauth.GoogleUserPolicy{Domain: "a.com"},
+					Policy: hubauth.GoogleUserGroups{Domain: "a.com"},
 				},
 			},
 			before: &hubauth.Audience{},
@@ -364,7 +364,7 @@ func TestAudienceMutate(t *testing.T) {
 				{Op: hubauth.AudienceMutationOpAddClientID, ClientID: "c"},
 				{
 					Op: hubauth.AudienceMutationOpSetPolicy,
-					Policy: hubauth.GoogleUserPolicy{
+					Policy: hubauth.GoogleUserGroups{
 						Domain:  "example.com",
 						Groups:  []string{"a", "b"},
 						APIUser: "foo",
@@ -376,7 +376,7 @@ func TestAudienceMutate(t *testing.T) {
 			},
 			after: &hubauth.Audience{
 				ClientIDs: []string{"a", "b", "c"},
-				Policies: []*hubauth.GoogleUserPolicy{
+				UserGroups: []*hubauth.GoogleUserGroups{
 					{Domain: "example.com", Groups: []string{"a", "b"}, APIUser: "foo"},
 				},
 			},
@@ -399,8 +399,8 @@ func TestAudienceMutate(t *testing.T) {
 
 		res, err := s.GetAudience(ctx, url)
 		require.NoError(t, err, tt.desc)
-		if len(res.Policies) == 0 {
-			res.Policies = nil
+		if len(res.UserGroups) == 0 {
+			res.UserGroups = nil
 		}
 		require.Equal(t, before.CreateTime, res.CreateTime)
 
@@ -418,8 +418,8 @@ func TestMutateAudiencePolicy(t *testing.T) {
 	type test struct {
 		desc   string
 		mut    []*hubauth.AudiencePolicyMutation
-		before []*hubauth.GoogleUserPolicy
-		after  []*hubauth.GoogleUserPolicy
+		before []*hubauth.GoogleUserGroups
+		after  []*hubauth.GoogleUserGroups
 	}
 	tests := []test{
 		{
@@ -430,11 +430,11 @@ func TestMutateAudiencePolicy(t *testing.T) {
 					APIUser: "user2",
 				},
 			},
-			before: []*hubauth.GoogleUserPolicy{
+			before: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
-			after: []*hubauth.GoogleUserPolicy{
+			after: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user2", Groups: []string{"grp1", "grp2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
@@ -447,11 +447,11 @@ func TestMutateAudiencePolicy(t *testing.T) {
 					APIUser: "user1",
 				},
 			},
-			before: []*hubauth.GoogleUserPolicy{
+			before: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
-			after: []*hubauth.GoogleUserPolicy{
+			after: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
@@ -472,11 +472,11 @@ func TestMutateAudiencePolicy(t *testing.T) {
 					Group: "grp2",
 				},
 			},
-			before: []*hubauth.GoogleUserPolicy{
+			before: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
-			after: []*hubauth.GoogleUserPolicy{
+			after: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2", "added-1", "added-2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
@@ -493,11 +493,11 @@ func TestMutateAudiencePolicy(t *testing.T) {
 					Group: "grp2",
 				},
 			},
-			before: []*hubauth.GoogleUserPolicy{
+			before: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2", "grp3"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
-			after: []*hubauth.GoogleUserPolicy{
+			after: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp3"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
@@ -514,11 +514,11 @@ func TestMutateAudiencePolicy(t *testing.T) {
 					Group: "grp2",
 				},
 			},
-			before: []*hubauth.GoogleUserPolicy{
+			before: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
-			after: []*hubauth.GoogleUserPolicy{
+			after: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: nil},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
@@ -543,11 +543,11 @@ func TestMutateAudiencePolicy(t *testing.T) {
 					APIUser: "new-user",
 				},
 			},
-			before: []*hubauth.GoogleUserPolicy{
+			before: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
-			after: []*hubauth.GoogleUserPolicy{
+			after: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "new-user", Groups: []string{"grp2", "added-1", "added-2"}},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
@@ -558,8 +558,8 @@ func TestMutateAudiencePolicy(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		aud := &hubauth.Audience{
-			URL:      "https://cluster.mutate.example.com",
-			Policies: tt.before,
+			URL:        "https://cluster.mutate.example.com",
+			UserGroups: tt.before,
 		}
 
 		err := s.CreateAudience(ctx, aud)
@@ -572,20 +572,20 @@ func TestMutateAudiencePolicy(t *testing.T) {
 
 		res, err := s.GetAudience(ctx, aud.URL)
 		require.NoError(t, err, tt.desc)
-		if len(res.Policies) == 0 {
-			res.Policies = nil
+		if len(res.UserGroups) == 0 {
+			res.UserGroups = nil
 		}
 		require.Equal(t, before.CreateTime, res.CreateTime)
 
 		// sort to ensure consistent slice comparison
-		for _, p := range res.Policies {
+		for _, p := range res.UserGroups {
 			sort.Strings(p.Groups)
 		}
 		for _, p := range tt.after {
 			sort.Strings(p.Groups)
 		}
 
-		require.Equal(t, tt.after, res.Policies, tt.desc)
+		require.Equal(t, tt.after, res.UserGroups, tt.desc)
 
 		s.DeleteAudience(ctx, aud.URL)
 	}

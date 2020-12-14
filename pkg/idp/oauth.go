@@ -471,7 +471,7 @@ func (s *idpService) ListAudiences(ctx context.Context, req *hubauth.ListAudienc
 	}
 outer:
 	for _, aud := range clientAudiences {
-		for _, p := range aud.Policies {
+		for _, p := range aud.UserGroups {
 			for _, allowedGroup := range p.Groups {
 				for _, userGroup := range userGroups {
 					if allowedGroup == userGroup {

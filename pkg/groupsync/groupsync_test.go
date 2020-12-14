@@ -94,7 +94,7 @@ func TestGroupSync(t *testing.T) {
 	err := srv.db.CreateAudience(context.Background(), &hubauth.Audience{
 		Name: "audience1",
 		URL:  "audience1",
-		Policies: []*hubauth.GoogleUserPolicy{
+		UserGroups: []*hubauth.GoogleUserGroups{
 			{
 				APIUser: apiUser,
 				Domain:  domain1,
@@ -234,7 +234,7 @@ func TestGroupSyncErrors(t *testing.T) {
 		{
 			Name: "audience1",
 			URL:  "audience1",
-			Policies: []*hubauth.GoogleUserPolicy{
+			UserGroups: []*hubauth.GoogleUserGroups{
 				{
 					APIUser: "apiUser",
 					Domain:  "domain1",

@@ -51,12 +51,12 @@ func (s *Service) Sync(ctx context.Context) error {
 
 	groups := make(map[domainGroup]string)
 	for _, a := range audiences {
-		for _, p := range a.Policies {
-			if p.APIUser == "" || p.Domain == "" || len(p.Groups) == 0 {
+		for _, ug := range a.UserGroups {
+			if ug.APIUser == "" || ug.Domain == "" || len(ug.Groups) == 0 {
 				continue
 			}
-			for _, g := range p.Groups {
-				groups[domainGroup{p.Domain, g}] = p.APIUser
+			for _, g := range ug.Groups {
+				groups[domainGroup{ug.Domain, g}] = ug.APIUser
 			}
 		}
 	}

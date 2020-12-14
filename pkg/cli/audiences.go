@@ -25,6 +25,7 @@ type audiencesCmd struct {
 	UpdatePolicy    audiencesUpdatePolicyCmd     `kong:"cmd,name='update-policy',help='modify audience policy api user or groups'"`
 	DeletePolicy    audiencesDeletePolicyCmd     `kong:"cmd,name='delete-policy',help='delete audience auth policy'"`
 	Key             audiencesKeyCmd              `kong:"cmd,help='get audience public key'"`
+	MigratePolicies audienceMigratePoliciesCmd   `kong:"cmd,help='migrate audience policies to user groups'"`
 }
 
 type audiencesListCmd struct{}
@@ -181,8 +182,8 @@ func (c *audiencesListPoliciesCmd) Run(cfg *Config) error {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.AppendHeader(table.Row{"Domain", "APIUser", "Groups"})
-	for _, p := range audience.Policies {
-		t.AppendRow(table.Row{p.Domain, p.APIUser, p.Groups})
+	for _, ug := range audience.UserGroups {
+		t.AppendRow(table.Row{ug.Domain, ug.APIUser, ug.Groups})
 	}
 	t.Render()
 	return nil
@@ -198,7 +199,7 @@ type audiencesSetPolicyCmd struct {
 func (c *audiencesSetPolicyCmd) Run(cfg *Config) error {
 	mut := &hubauth.AudienceMutation{
 		Op: hubauth.AudienceMutationOpSetPolicy,
-		Policy: hubauth.GoogleUserPolicy{
+		Policy: hubauth.GoogleUserGroups{
 			Domain:  c.Domain,
 			APIUser: c.APIUser,
 			Groups:  c.Groups,
@@ -247,7 +248,7 @@ type audiencesDeletePolicyCmd struct {
 func (c *audiencesDeletePolicyCmd) Run(cfg *Config) error {
 	mut := &hubauth.AudienceMutation{
 		Op: hubauth.AudienceMutationOpDeletePolicy,
-		Policy: hubauth.GoogleUserPolicy{
+		Policy: hubauth.GoogleUserGroups{
 			Domain: c.Domain,
 		},
 	}
@@ -283,5 +284,28 @@ func (c *audiencesKeyCmd) Run(cfg *Config) error {
 
 	b, _ := pem.Decode([]byte(res.Pem))
 	fmt.Println(base64.URLEncoding.EncodeToString(b.Bytes))
+	return nil
+}
+
+type audienceMigratePoliciesCmd struct {
+}
+
+func (c *audienceMigratePoliciesCmd) Run(cfg *Config) error {
+	ctx := context.Background()
+
+	policies, err := cfg.DB.ListAudiences(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range policies {
+		err = cfg.DB.MutateAudience(ctx, p.URL, []*hubauth.AudienceMutation{{
+			Op: hubauth.AudienceMutationMigratePolicy,
+		}})
+		if err != nil {
+			return fmt.Errorf("Failed to migrate policies to userGroups for audience %q", p.URL)
+		}
+		fmt.Printf("Success migrating policies to userGroups for %q\n", p.URL)
+	}
 	return nil
 }

@@ -274,7 +274,7 @@ func TestVerifyAudience(t *testing.T) {
 	err = s.db.CreateAudience(context.Background(), &hubauth.Audience{
 		URL:       validAudienceURL,
 		ClientIDs: []string{validClientID},
-		Policies: []*hubauth.GoogleUserPolicy{
+		UserGroups: []*hubauth.GoogleUserGroups{
 			{
 				Groups: []string{validGroupID},
 			},

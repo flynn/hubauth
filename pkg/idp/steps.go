@@ -182,7 +182,7 @@ func (s *steps) checkUser(ctx context.Context, cluster *hubauth.Audience, userID
 	// TODO: log allowed groups and cached groups
 	allowed := false
 outer:
-	for _, p := range cluster.Policies {
+	for _, p := range cluster.UserGroups {
 		for _, allowedGroup := range p.Groups {
 			for _, g := range groups {
 				if g == allowedGroup {

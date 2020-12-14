@@ -702,7 +702,7 @@ func TestAudiences(t *testing.T) {
 		Name:       "audName",
 		Type:       "audType",
 		ClientIDs:  []string{"client1", "client2"},
-		Policies:   []*hubauth.GoogleUserPolicy{{Domain: "domain"}},
+		UserGroups: []*hubauth.GoogleUserGroups{{Domain: "domain"}},
 		CreateTime: now,
 		UpdateTime: now,
 	}
@@ -712,7 +712,7 @@ func TestAudiences(t *testing.T) {
 		Name:       "anotherAudName",
 		Type:       "anotherAudType",
 		ClientIDs:  []string{"client1", "client2"},
-		Policies:   []*hubauth.GoogleUserPolicy{{Domain: "domain"}},
+		UserGroups: []*hubauth.GoogleUserGroups{{Domain: "domain"}},
 		CreateTime: now,
 		UpdateTime: now,
 	}

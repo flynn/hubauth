@@ -13,16 +13,18 @@ import (
 
 func buildAudience(c *hubauth.Audience) *audience {
 	now := time.Now()
-	policies := make([]googleUserPolicy, len(c.Policies))
-	for i, p := range c.Policies {
-		policies[i] = buildGoogleUserPolicy(p)
+	userGroups := make([]googleUserGroups, len(c.UserGroups))
+	for i, p := range c.UserGroups {
+		userGroups[i] = buildGoogleUserGroups(p)
 	}
+
 	return &audience{
 		Key:        audienceKey(c.URL),
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
-		Policies:   policies,
+		Policies:   userGroups,
+		UserGroups: userGroups,
 		CreateTime: now,
 		UpdateTime: now,
 	}
@@ -33,34 +35,35 @@ type audience struct {
 	Name       string
 	Type       string
 	ClientIDs  []string
-	Policies   []googleUserPolicy `datastore:",flatten"`
+	Policies   []googleUserGroups `datastore:",flatten"`
+	UserGroups []googleUserGroups `datastore:",flatten"`
 	CreateTime time.Time
 	UpdateTime time.Time
 }
 
-func buildGoogleUserPolicy(p *hubauth.GoogleUserPolicy) googleUserPolicy {
-	return googleUserPolicy{
+func buildGoogleUserGroups(p *hubauth.GoogleUserGroups) googleUserGroups {
+	return googleUserGroups{
 		Domain:  p.Domain,
 		APIUser: p.APIUser,
 		Groups:  strings.Join(p.Groups, ","),
 	}
 }
 
-type googleUserPolicy struct {
+type googleUserGroups struct {
 	Domain  string
 	APIUser string
 	Groups  string // datastore doesn't take nested lists, so encode by comma-separating
 }
 
 func (c *audience) Export() *hubauth.Audience {
-	policies := make([]*hubauth.GoogleUserPolicy, len(c.Policies))
+	userGroups := make([]*hubauth.GoogleUserGroups, len(c.Policies))
 	for i, p := range c.Policies {
 		var grps []string
 		if p.Groups != "" {
 			grps = strings.Split(p.Groups, ",")
 		}
 
-		policies[i] = &hubauth.GoogleUserPolicy{
+		userGroups[i] = &hubauth.GoogleUserGroups{
 			Domain:  p.Domain,
 			APIUser: p.APIUser,
 			Groups:  grps,
@@ -71,7 +74,7 @@ func (c *audience) Export() *hubauth.Audience {
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
-		Policies:   policies,
+		UserGroups: userGroups,
 		CreateTime: c.CreateTime,
 		UpdateTime: c.UpdateTime,
 	}
@@ -149,12 +152,12 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 			case hubauth.AudienceMutationOpSetPolicy:
 				for i, p := range aud.Policies {
 					if p.Domain == m.Policy.Domain {
-						aud.Policies[i] = buildGoogleUserPolicy(&m.Policy)
+						aud.Policies[i] = buildGoogleUserGroups(&m.Policy)
 						modified = true
 						continue outer
 					}
 				}
-				aud.Policies = append(aud.Policies, buildGoogleUserPolicy(&m.Policy))
+				aud.Policies = append(aud.Policies, buildGoogleUserGroups(&m.Policy))
 				modified = true
 			case hubauth.AudienceMutationOpDeletePolicy:
 				for i, p := range aud.Policies {
@@ -170,6 +173,12 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					continue
 				}
 				aud.Type = m.Type
+				modified = true
+			case hubauth.AudienceMutationMigratePolicy:
+				aud.UserGroups = make([]googleUserGroups, len(aud.Policies))
+				for i, ug := range aud.Policies {
+					aud.UserGroups[i] = ug
+				}
 				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)
@@ -207,14 +216,14 @@ func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain s
 			return fmt.Errorf("datastore: error fetching audience %s: %w", url, err)
 		}
 
-		var policy *googleUserPolicy
+		var userGroups *googleUserGroups
 		for i := range aud.Policies {
 			if aud.Policies[i].Domain == domain {
-				policy = &aud.Policies[i]
+				userGroups = &aud.Policies[i]
 				break
 			}
 		}
-		if policy == nil {
+		if userGroups == nil {
 			return hubauth.ErrNotFound
 		}
 
@@ -223,16 +232,16 @@ func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain s
 		for _, m := range mut {
 			switch m.Op {
 			case hubauth.AudiencePolicyMutationOpAddGroup:
-				groups := strings.Split(policy.Groups, ",")
+				groups := strings.Split(userGroups.Groups, ",")
 				for _, g := range groups {
 					if g == m.Group {
 						continue outer
 					}
 				}
-				policy.Groups = strings.Join(append(groups, m.Group), ",")
+				userGroups.Groups = strings.Join(append(groups, m.Group), ",")
 				modified = true
 			case hubauth.AudiencePolicyMutationOpDeleteGroup:
-				groups := strings.Split(policy.Groups, ",")
+				groups := strings.Split(userGroups.Groups, ",")
 				for i, g := range groups {
 					if g != m.Group {
 						continue
@@ -240,13 +249,13 @@ func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain s
 					groups[i] = groups[len(groups)-1]
 					groups = groups[:len(groups)-1]
 				}
-				policy.Groups = strings.Join(groups, ",")
+				userGroups.Groups = strings.Join(groups, ",")
 				modified = true
 			case hubauth.AudiencePolicyMutationOpSetAPIUser:
-				if policy.APIUser == m.APIUser {
+				if userGroups.APIUser == m.APIUser {
 					continue
 				}
-				policy.APIUser = m.APIUser
+				userGroups.APIUser = m.APIUser
 				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience policy mutation op %s", m.Op)

@@ -1192,13 +1192,13 @@ func prepareClientAudiencesDB(t *testing.T) []*audienceTestCase {
 
 	audience1 := &hubauth.Audience{
 		ClientIDs: []string{client1ID},
-		Policies: []*hubauth.GoogleUserPolicy{
+		UserGroups: []*hubauth.GoogleUserGroups{
 			{Groups: []string{group1.GroupID, group2.GroupID}},
 		},
 	}
 	audience2 := &hubauth.Audience{
 		ClientIDs: []string{client1ID, client2ID},
-		Policies: []*hubauth.GoogleUserPolicy{
+		UserGroups: []*hubauth.GoogleUserGroups{
 			{Groups: []string{group2.GroupID}},
 		},
 	}

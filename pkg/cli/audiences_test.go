@@ -287,7 +287,7 @@ func TestAudienceSetPolicyCmd(t *testing.T) {
 	muts := []*hubauth.AudienceMutation{
 		{
 			Op: hubauth.AudienceMutationOpSetPolicy,
-			Policy: hubauth.GoogleUserPolicy{
+			Policy: hubauth.GoogleUserGroups{
 				Domain:  cmd.Domain,
 				APIUser: cmd.APIUser,
 				Groups:  cmd.Groups,
@@ -427,7 +427,7 @@ func TestAudienceDeletePolicyCmd(t *testing.T) {
 	muts := []*hubauth.AudienceMutation{
 		{
 			Op: hubauth.AudienceMutationOpDeletePolicy,
-			Policy: hubauth.GoogleUserPolicy{
+			Policy: hubauth.GoogleUserGroups{
 				Domain: cmd.Domain,
 			},
 		},
@@ -506,7 +506,7 @@ func TestAudienceListPolicies(t *testing.T) {
 
 	audience := &hubauth.Audience{
 		Name: "https://audience.url",
-		Policies: []*hubauth.GoogleUserPolicy{
+		UserGroups: []*hubauth.GoogleUserGroups{
 			{
 				APIUser: "user1",
 				Domain:  "domain1",
@@ -542,8 +542,8 @@ func TestAudienceListPolicies(t *testing.T) {
 	tw := table.NewWriter()
 	tw.SetOutputMirror(expectedBuf)
 	tw.AppendHeader(table.Row{"Domain", "APIUser", "Groups"})
-	for _, p := range audience.Policies {
-		tw.AppendRow(table.Row{p.Domain, p.APIUser, p.Groups})
+	for _, ug := range audience.UserGroups {
+		tw.AppendRow(table.Row{ug.Domain, ug.APIUser, ug.Groups})
 	}
 	tw.Render()
 

@@ -34,7 +34,6 @@ type audience struct {
 	Name       string
 	Type       string
 	ClientIDs  []string
-	Policies   []googleUserGroups `datastore:",flatten"`
 	UserGroups []googleUserGroups `datastore:",flatten"`
 	CreateTime time.Time
 	UpdateTime time.Time
@@ -172,9 +171,6 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					continue
 				}
 				aud.Type = m.Type
-				modified = true
-			case hubauth.AudienceMutationCleanupPolicyMigration:
-				aud.Policies = make([]googleUserGroups, 0)
 				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)

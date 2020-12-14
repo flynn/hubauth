@@ -23,7 +23,6 @@ func buildAudience(c *hubauth.Audience) *audience {
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
-		Policies:   userGroups,
 		UserGroups: userGroups,
 		CreateTime: now,
 		UpdateTime: now,
@@ -56,8 +55,8 @@ type googleUserGroups struct {
 }
 
 func (c *audience) Export() *hubauth.Audience {
-	userGroups := make([]*hubauth.GoogleUserGroups, len(c.Policies))
-	for i, p := range c.Policies {
+	userGroups := make([]*hubauth.GoogleUserGroups, len(c.UserGroups))
+	for i, p := range c.UserGroups {
 		var grps []string
 		if p.Groups != "" {
 			grps = strings.Split(p.Groups, ",")
@@ -150,22 +149,22 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 					modified = true
 				}
 			case hubauth.AudienceMutationOpSetPolicy:
-				for i, p := range aud.Policies {
+				for i, p := range aud.UserGroups {
 					if p.Domain == m.Policy.Domain {
-						aud.Policies[i] = buildGoogleUserGroups(&m.Policy)
+						aud.UserGroups[i] = buildGoogleUserGroups(&m.Policy)
 						modified = true
 						continue outer
 					}
 				}
-				aud.Policies = append(aud.Policies, buildGoogleUserGroups(&m.Policy))
+				aud.UserGroups = append(aud.UserGroups, buildGoogleUserGroups(&m.Policy))
 				modified = true
 			case hubauth.AudienceMutationOpDeletePolicy:
-				for i, p := range aud.Policies {
+				for i, p := range aud.UserGroups {
 					if p.Domain != m.Policy.Domain {
 						continue
 					}
-					aud.Policies[i] = aud.Policies[len(aud.Policies)-1]
-					aud.Policies = aud.Policies[:len(aud.Policies)-1]
+					aud.UserGroups[i] = aud.UserGroups[len(aud.UserGroups)-1]
+					aud.UserGroups = aud.UserGroups[:len(aud.UserGroups)-1]
 					modified = true
 				}
 			case hubauth.AudienceMutationSetType:
@@ -174,11 +173,8 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 				}
 				aud.Type = m.Type
 				modified = true
-			case hubauth.AudienceMutationMigratePolicy:
-				aud.UserGroups = make([]googleUserGroups, len(aud.Policies))
-				for i, ug := range aud.Policies {
-					aud.UserGroups[i] = ug
-				}
+			case hubauth.AudienceMutationCleanupPolicyMigration:
+				aud.Policies = make([]googleUserGroups, 0)
 				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)
@@ -217,9 +213,9 @@ func (s *service) MutateAudiencePolicy(ctx context.Context, url string, domain s
 		}
 
 		var userGroups *googleUserGroups
-		for i := range aud.Policies {
-			if aud.Policies[i].Domain == domain {
-				userGroups = &aud.Policies[i]
+		for i := range aud.UserGroups {
+			if aud.UserGroups[i].Domain == domain {
+				userGroups = &aud.UserGroups[i]
 				break
 			}
 		}

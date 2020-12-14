@@ -172,6 +172,12 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 				}
 				aud.Type = m.Type
 				modified = true
+			case hubauth.AudienceMutationMigratePolicy:
+				aud.UserGroups = make([]googleUserGroups, len(aud.Policies))
+				for i, ug := range aud.Policies {
+					aud.UserGroups[i] = ug
+				}
+				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)
 			}

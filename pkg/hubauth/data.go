@@ -61,7 +61,7 @@ type AudienceStore interface {
 	GetAudience(ctx context.Context, url string) (*Audience, error)
 	CreateAudience(ctx context.Context, audience *Audience) error
 	MutateAudience(ctx context.Context, url string, mut []*AudienceMutation) error
-	MutateAudiencePolicy(ctx context.Context, url string, domain string, mut []*AudiencePolicyMutation) error
+	MutateAudienceUserGroups(ctx context.Context, url string, domain string, mut []*AudienceUserGroupsMutation) error
 	ListAudiencesForClient(ctx context.Context, clientID string) ([]*Audience, error)
 	ListAudiences(ctx context.Context) ([]*Audience, error)
 	DeleteAudience(ctx context.Context, url string) error
@@ -88,29 +88,29 @@ type AudienceMutationOp byte
 const (
 	AudienceMutationOpAddClientID AudienceMutationOp = iota
 	AudienceMutationOpDeleteClientID
-	AudienceMutationOpSetPolicy
-	AudienceMutationOpDeletePolicy
+	AudienceMutationOpSetUserGroups
+	AudienceMutationOpDeleteUserGroups
 	AudienceMutationSetType
 )
 
 type AudienceMutation struct {
 	Op AudienceMutationOp
 
-	ClientID string
-	Type     string
-	Policy   GoogleUserGroups
+	ClientID   string
+	Type       string
+	UserGroups GoogleUserGroups
 }
 
-type AudiencePolicyMutationOp byte
+type AudienceUserGroupsMutationOp byte
 
 const (
-	AudiencePolicyMutationOpAddGroup AudiencePolicyMutationOp = iota
-	AudiencePolicyMutationOpDeleteGroup
-	AudiencePolicyMutationOpSetAPIUser
+	AudienceUserGroupsMutationOpAddGroup AudienceUserGroupsMutationOp = iota
+	AudienceUserGroupsMutationOpDeleteGroup
+	AudienceUserGroupsMutationOpSetAPIUser
 )
 
-type AudiencePolicyMutation struct {
-	Op AudiencePolicyMutationOp
+type AudienceUserGroupsMutation struct {
+	Op AudienceUserGroupsMutationOp
 
 	APIUser string
 	Group   string

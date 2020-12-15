@@ -482,6 +482,23 @@ func TestMutateAudienceUserGroups(t *testing.T) {
 			},
 		},
 		{
+			desc: "add single first group",
+			mut: []*hubauth.AudienceUserGroupsMutation{
+				{
+					Op:    hubauth.AudienceUserGroupsMutationOpAddGroup,
+					Group: "added-1",
+				},
+			},
+			before: []*hubauth.GoogleUserGroups{
+				{Domain: domain, APIUser: "user1", Groups: nil},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserGroups{
+				{Domain: domain, APIUser: "user1", Groups: []string{"added-1"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+		{
 			desc: "delete groups",
 			mut: []*hubauth.AudienceUserGroupsMutation{
 				{
@@ -499,6 +516,23 @@ func TestMutateAudienceUserGroups(t *testing.T) {
 			},
 			after: []*hubauth.GoogleUserGroups{
 				{Domain: domain, APIUser: "user1", Groups: []string{"grp3"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+		},
+		{
+			desc: "add single last group",
+			mut: []*hubauth.AudienceUserGroupsMutation{
+				{
+					Op:    hubauth.AudienceUserGroupsMutationOpDeleteGroup,
+					Group: "grp1",
+				},
+			},
+			before: []*hubauth.GoogleUserGroups{
+				{Domain: domain, APIUser: "user1", Groups: []string{"grp1"}},
+				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
+			},
+			after: []*hubauth.GoogleUserGroups{
+				{Domain: domain, APIUser: "user1", Groups: nil},
 				{Domain: "other", APIUser: "user1", Groups: []string{"grp1", "grp2"}},
 			},
 		},

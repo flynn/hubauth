@@ -224,7 +224,10 @@ func (s *service) MutateAudienceUserGroups(ctx context.Context, url string, doma
 		for _, m := range mut {
 			switch m.Op {
 			case hubauth.AudienceUserGroupsMutationOpAddGroup:
-				groups := strings.Split(userGroups.Groups, ",")
+				var groups []string
+				if userGroups.Groups != "" {
+					groups = strings.Split(userGroups.Groups, ",")
+				}
 				for _, g := range groups {
 					if g == m.Group {
 						continue outer
@@ -233,7 +236,10 @@ func (s *service) MutateAudienceUserGroups(ctx context.Context, url string, doma
 				userGroups.Groups = strings.Join(append(groups, m.Group), ",")
 				modified = true
 			case hubauth.AudienceUserGroupsMutationOpDeleteGroup:
-				groups := strings.Split(userGroups.Groups, ",")
+				var groups []string
+				if userGroups.Groups != "" {
+					groups = strings.Split(userGroups.Groups, ",")
+				}
 				for i, g := range groups {
 					if g != m.Group {
 						continue

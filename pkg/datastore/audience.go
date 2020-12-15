@@ -18,12 +18,18 @@ func buildAudience(c *hubauth.Audience) *audience {
 		userGroups[i] = buildGoogleUserGroups(p)
 	}
 
+	policies := make([]biscuitPolicy, len(c.Policies))
+	for i, p := range c.Policies {
+		policies[i] = buildBiscuitPolicy(p)
+	}
+
 	return &audience{
 		Key:        audienceKey(c.URL),
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
 		UserGroups: userGroups,
+		Policies:   policies,
 		CreateTime: now,
 		UpdateTime: now,
 	}
@@ -35,6 +41,7 @@ type audience struct {
 	Type       string
 	ClientIDs  []string
 	UserGroups []googleUserGroups `datastore:",flatten"`
+	Policies   []biscuitPolicy    `datastore:",flatten"`
 	CreateTime time.Time
 	UpdateTime time.Time
 }
@@ -47,32 +54,67 @@ func buildGoogleUserGroups(p *hubauth.GoogleUserGroups) googleUserGroups {
 	}
 }
 
+func buildBiscuitPolicy(p *hubauth.BiscuitPolicy) biscuitPolicy {
+	return biscuitPolicy{
+		Name:    p.Name,
+		Content: p.Content,
+		Groups:  strings.Join(p.Groups, ","),
+	}
+}
+
 type googleUserGroups struct {
 	Domain  string
 	APIUser string
 	Groups  string // datastore doesn't take nested lists, so encode by comma-separating
 }
 
-func (c *audience) Export() *hubauth.Audience {
-	userGroups := make([]*hubauth.GoogleUserGroups, len(c.UserGroups))
-	for i, p := range c.UserGroups {
-		var grps []string
-		if p.Groups != "" {
-			grps = strings.Split(p.Groups, ",")
-		}
+type biscuitPolicy struct {
+	Name    string
+	Content string
+	Groups  string // datastore doesn't take nested lists, so encode by comma-separating
+}
 
-		userGroups[i] = &hubauth.GoogleUserGroups{
-			Domain:  p.Domain,
-			APIUser: p.APIUser,
-			Groups:  grps,
+func (c *audience) Export() *hubauth.Audience {
+	var userGroups []*hubauth.GoogleUserGroups
+	if len(c.UserGroups) > 0 {
+		userGroups = make([]*hubauth.GoogleUserGroups, len(c.UserGroups))
+		for i, p := range c.UserGroups {
+			var grps []string
+			if p.Groups != "" {
+				grps = strings.Split(p.Groups, ",")
+			}
+
+			userGroups[i] = &hubauth.GoogleUserGroups{
+				Domain:  p.Domain,
+				APIUser: p.APIUser,
+				Groups:  grps,
+			}
 		}
 	}
+	var policies []*hubauth.BiscuitPolicy
+	if len(c.Policies) > 0 {
+		policies = make([]*hubauth.BiscuitPolicy, len(c.Policies))
+		for i, p := range c.Policies {
+			var grps []string
+			if p.Groups != "" {
+				grps = strings.Split(p.Groups, ",")
+			}
+
+			policies[i] = &hubauth.BiscuitPolicy{
+				Name:    p.Name,
+				Content: p.Content,
+				Groups:  grps,
+			}
+		}
+	}
+
 	return &hubauth.Audience{
 		URL:        c.Key.Name,
 		Name:       c.Name,
 		Type:       c.Type,
 		ClientIDs:  c.ClientIDs,
 		UserGroups: userGroups,
+		Policies:   policies,
 		CreateTime: c.CreateTime,
 		UpdateTime: c.UpdateTime,
 	}
@@ -172,12 +214,25 @@ func (s *service) MutateAudience(ctx context.Context, url string, mut []*hubauth
 				}
 				aud.Type = m.Type
 				modified = true
-			case hubauth.AudienceMutationMigratePolicy:
-				aud.UserGroups = make([]googleUserGroups, len(aud.Policies))
-				for i, ug := range aud.Policies {
-					aud.UserGroups[i] = ug
+			case hubauth.AudienceMutationSetPolicy:
+				for i, p := range aud.Policies {
+					if p.Name == m.Policy.Name {
+						aud.Policies[i] = buildBiscuitPolicy(&m.Policy)
+						modified = true
+						continue outer
+					}
 				}
+				aud.Policies = append(aud.Policies, buildBiscuitPolicy(&m.Policy))
 				modified = true
+			case hubauth.AudienceMutationDeletePolicy:
+				for i, p := range aud.Policies {
+					if p.Name != m.Policy.Name {
+						continue
+					}
+					aud.Policies[i] = aud.Policies[len(aud.Policies)-1]
+					aud.Policies = aud.Policies[:len(aud.Policies)-1]
+					modified = true
+				}
 			default:
 				return fmt.Errorf("datastore: unknown audience mutation op %s", m.Op)
 			}
@@ -263,6 +318,89 @@ func (s *service) MutateAudienceUserGroups(ctx context.Context, url string, doma
 				modified = true
 			default:
 				return fmt.Errorf("datastore: unknown audience usergroups mutation op %s", m.Op)
+			}
+		}
+		if !modified {
+			return nil
+		}
+		aud.UpdateTime = time.Now()
+		_, err := tx.Put(k, aud)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("datastore: error mutating audience %s: %w", url, err)
+	}
+	return nil
+}
+
+func (s *service) MutateAudiencePolicy(ctx context.Context, url string, policyName string, mut []*hubauth.AudiencePolicyMutation) error {
+	ctx, span := trace.StartSpan(ctx, "datastore.MutateAudiencePolicy")
+	span.AddAttributes(
+		trace.StringAttribute("audience_url", url),
+		trace.StringAttribute("audience_policy_name", policyName),
+		trace.Int64Attribute("audience_policy_mutation_count", int64(len(mut))),
+	)
+	defer span.End()
+
+	k := audienceKey(url)
+	_, err := s.db.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
+		aud := &audience{}
+		if err := tx.Get(k, aud); err != nil {
+			if err == datastore.ErrNoSuchEntity {
+				err = hubauth.ErrNotFound
+			}
+			return fmt.Errorf("datastore: error fetching audience %s: %w", url, err)
+		}
+
+		var policy *biscuitPolicy
+		for i := range aud.Policies {
+			if aud.Policies[i].Name == policyName {
+				policy = &aud.Policies[i]
+				break
+			}
+		}
+		if policy == nil {
+			return hubauth.ErrNotFound
+		}
+
+		modified := false
+	outer:
+		for _, m := range mut {
+			switch m.Op {
+			case hubauth.AudiencePolicyMutationOpAddGroup:
+				var groups []string
+				if policy.Groups != "" {
+					groups = strings.Split(policy.Groups, ",")
+				}
+				for _, g := range groups {
+					if g == m.Group {
+						continue outer
+					}
+				}
+				policy.Groups = strings.Join(append(groups, m.Group), ",")
+				modified = true
+			case hubauth.AudiencePolicyMutationOpDeleteGroup:
+				var groups []string
+				if policy.Groups != "" {
+					groups = strings.Split(policy.Groups, ",")
+				}
+				for i, g := range groups {
+					if g != m.Group {
+						continue
+					}
+					groups[i] = groups[len(groups)-1]
+					groups = groups[:len(groups)-1]
+				}
+				policy.Groups = strings.Join(groups, ",")
+				modified = true
+			case hubauth.AudiencePolicyMutationOpSetContent:
+				if policy.Content == m.Content {
+					continue
+				}
+				policy.Content = m.Content
+				modified = true
+			default:
+				return fmt.Errorf("datastore: unknown audience policy mutation op %s", m.Op)
 			}
 		}
 		if !modified {

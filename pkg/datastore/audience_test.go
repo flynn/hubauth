@@ -359,6 +359,105 @@ func TestAudienceMutate(t *testing.T) {
 			},
 		},
 		{
+			desc: "set new policy",
+			mut: []*hubauth.AudienceMutation{
+				{
+					Op: hubauth.AudienceMutationSetPolicy,
+					Policy: hubauth.BiscuitPolicy{
+						Name:    "policy",
+						Content: "policy content",
+						Groups:  []string{"grp1"},
+					},
+				},
+			},
+			before: &hubauth.Audience{
+				Policies: nil,
+			},
+			after: &hubauth.Audience{
+				Policies: []*hubauth.BiscuitPolicy{
+					{
+						Name:    "policy",
+						Content: "policy content",
+						Groups:  []string{"grp1"},
+					},
+				},
+			},
+		},
+		{
+			desc: "set existing policy",
+			mut: []*hubauth.AudienceMutation{
+				{
+					Op: hubauth.AudienceMutationSetPolicy,
+					Policy: hubauth.BiscuitPolicy{
+						Name:    "policy",
+						Content: "policy content",
+						Groups:  []string{"grp1"},
+					},
+				},
+			},
+			before: &hubauth.Audience{
+				Policies: []*hubauth.BiscuitPolicy{
+					{
+						Name:    "policy",
+						Content: "old policy content",
+						Groups:  []string{"grpA", "grpB"},
+					},
+					{
+						Name:    "another_policy",
+						Content: "another policy content",
+					},
+				},
+			},
+			after: &hubauth.Audience{
+				Policies: []*hubauth.BiscuitPolicy{
+					{
+						Name:    "policy",
+						Content: "policy content",
+						Groups:  []string{"grp1"},
+					},
+					{
+						Name:    "another_policy",
+						Content: "another policy content",
+					},
+				},
+			},
+		},
+		{
+			desc: "delete policy",
+			mut: []*hubauth.AudienceMutation{
+				{
+					Op: hubauth.AudienceMutationDeletePolicy,
+					Policy: hubauth.BiscuitPolicy{
+						Name:    "policy",
+						Content: "policy content",
+						Groups:  []string{"grp1"},
+					},
+				},
+			},
+			before: &hubauth.Audience{
+				Policies: []*hubauth.BiscuitPolicy{
+					{
+						Name:    "policy",
+						Content: "old policy content",
+						Groups:  []string{"grpA", "grpB"},
+					},
+					{
+						Name:    "another_policy",
+						Content: "another policy content",
+					},
+				},
+			},
+			after: &hubauth.Audience{
+				Policies: []*hubauth.BiscuitPolicy{
+					{
+						Name:    "another_policy",
+						Content: "another policy content",
+					},
+				},
+			},
+		},
+
+		{
 			desc: "multiple",
 			mut: []*hubauth.AudienceMutation{
 				{Op: hubauth.AudienceMutationOpAddClientID, ClientID: "c"},
@@ -387,28 +486,30 @@ func TestAudienceMutate(t *testing.T) {
 	ctx := context.Background()
 	url := "https://cluster.mutate.example.com"
 	for _, tt := range tests {
-		tt.before.URL = url
-		tt.after.URL = url
-		err := s.CreateAudience(ctx, tt.before)
-		require.NoError(t, err, tt.desc)
-		before, err := s.GetAudience(ctx, url)
-		require.NoError(t, err)
+		t.Run(tt.desc, func(t *testing.T) {
+			tt.before.URL = url
+			tt.after.URL = url
+			err := s.CreateAudience(ctx, tt.before)
+			require.NoError(t, err, tt.desc)
+			before, err := s.GetAudience(ctx, url)
+			require.NoError(t, err)
 
-		err = s.MutateAudience(ctx, url, tt.mut)
-		require.NoError(t, err, tt.desc)
+			err = s.MutateAudience(ctx, url, tt.mut)
+			require.NoError(t, err, tt.desc)
 
-		res, err := s.GetAudience(ctx, url)
-		require.NoError(t, err, tt.desc)
-		if len(res.UserGroups) == 0 {
-			res.UserGroups = nil
-		}
-		require.Equal(t, before.CreateTime, res.CreateTime)
+			res, err := s.GetAudience(ctx, url)
+			require.NoError(t, err, tt.desc)
+			if len(res.UserGroups) == 0 {
+				res.UserGroups = nil
+			}
+			require.Equal(t, before.CreateTime, res.CreateTime)
 
-		res.CreateTime = time.Time{}
-		res.UpdateTime = time.Time{}
-		require.Equal(t, tt.after, res, tt.desc)
+			res.CreateTime = time.Time{}
+			res.UpdateTime = time.Time{}
+			require.Equal(t, tt.after, res, tt.desc)
 
-		s.DeleteAudience(ctx, url)
+			s.DeleteAudience(ctx, url)
+		})
 	}
 }
 
@@ -622,5 +723,173 @@ func TestMutateAudienceUserGroups(t *testing.T) {
 		require.Equal(t, tt.after, res.UserGroups, tt.desc)
 
 		s.DeleteAudience(ctx, aud.URL)
+	}
+}
+
+func TestMutateAudiencePolicy(t *testing.T) {
+	policyName := "policy_name"
+	type test struct {
+		desc   string
+		mut    []*hubauth.AudiencePolicyMutation
+		before []*hubauth.BiscuitPolicy
+		after  []*hubauth.BiscuitPolicy
+	}
+	tests := []test{
+		{
+			desc: "add single group",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "grp1",
+				},
+			},
+			before: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: nil,
+				},
+			},
+			after: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: []string{"grp1"},
+				},
+			},
+		},
+		{
+			desc: "add multiple groups",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "existing",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "grp1",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+					Group: "grp2",
+				},
+			},
+			before: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: []string{"existing"},
+				},
+			},
+			after: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: []string{"existing", "grp1", "grp2"},
+				},
+			},
+		},
+		{
+			desc: "delete last group",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp1",
+				},
+			},
+			before: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: []string{"grp1"},
+				},
+			},
+			after: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: nil,
+				},
+			},
+		},
+		{
+			desc: "delete multiple groups",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp1",
+				},
+				{
+					Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+					Group: "grp2",
+				},
+			},
+			before: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: []string{"existing", "grp1", "grp2"},
+				},
+			},
+			after: []*hubauth.BiscuitPolicy{
+				{
+					Name:   policyName,
+					Groups: []string{"existing"},
+				},
+			},
+		},
+		{
+			desc: "set content",
+			mut: []*hubauth.AudiencePolicyMutation{
+				{
+					Op:      hubauth.AudiencePolicyMutationOpSetContent,
+					Content: "new content",
+				},
+			},
+			before: []*hubauth.BiscuitPolicy{
+				{
+					Name:    policyName,
+					Content: "",
+				},
+			},
+			after: []*hubauth.BiscuitPolicy{
+				{
+					Name:    policyName,
+					Content: "new content",
+				},
+			},
+		},
+	}
+
+	s := newTestService(t)
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+
+			aud := &hubauth.Audience{
+				URL:      "https://cluster.mutate.example.com",
+				Policies: tt.before,
+			}
+
+			err := s.CreateAudience(ctx, aud)
+			require.NoError(t, err, tt.desc)
+			before, err := s.GetAudience(ctx, aud.URL)
+			require.NoError(t, err)
+
+			err = s.MutateAudiencePolicy(ctx, aud.URL, policyName, tt.mut)
+			require.NoError(t, err, tt.desc)
+
+			res, err := s.GetAudience(ctx, aud.URL)
+			require.NoError(t, err, tt.desc)
+			if len(res.UserGroups) == 0 {
+				res.UserGroups = nil
+			}
+			require.Equal(t, before.CreateTime, res.CreateTime)
+
+			// sort to ensure consistent slice comparison
+			for _, p := range res.Policies {
+				sort.Strings(p.Groups)
+			}
+			for _, p := range tt.after {
+				sort.Strings(p.Groups)
+			}
+
+			require.Equal(t, tt.after, res.Policies, tt.desc)
+
+			s.DeleteAudience(ctx, aud.URL)
+		})
 	}
 }

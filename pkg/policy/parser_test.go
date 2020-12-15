@@ -170,6 +170,38 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestParseDocumentPolicy(t *testing.T) {
+	testCases := []struct {
+		Desc        string
+		Input       string
+		ExpectedErr bool
+		ExpectedOut *DocumentPolicy
+	}{
+		{
+			Desc:        "single policy",
+			Input:       `policy "foo" {}`,
+			ExpectedOut: &DocumentPolicy{Name: sptr("foo")},
+		},
+		{
+			Desc:        "empty document returns an error",
+			Input:       "",
+			ExpectedErr: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Desc, func(t *testing.T) {
+			out, err := ParseDocumentPolicy(strings.NewReader(testCase.Input))
+			if testCase.ExpectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, testCase.ExpectedOut, out)
+			}
+		})
+	}
+}
+
 func sptr(s string) *string {
 	return &s
 }

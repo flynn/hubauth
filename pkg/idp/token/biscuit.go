@@ -22,12 +22,12 @@ var (
 
 type biscuitBuilder struct {
 	kms         kmssign.KMSClient
-	db          hubauth.BiscuitPolicyStore
+	db          hubauth.AudienceGetterStore
 	audienceKey kmssign.AudienceKeyNamer
 	rootKeyPair sig.Keypair
 }
 
-func NewBiscuitBuilder(kms kmssign.KMSClient, db hubauth.BiscuitPolicyStore, audienceKey kmssign.AudienceKeyNamer, rootKeyPair sig.Keypair) AccessTokenBuilder {
+func NewBiscuitBuilder(kms kmssign.KMSClient, db hubauth.AudienceGetterStore, audienceKey kmssign.AudienceKeyNamer, rootKeyPair sig.Keypair) AccessTokenBuilder {
 	return &biscuitBuilder{
 		kms:         kms,
 		db:          db,
@@ -57,7 +57,7 @@ func (b *biscuitBuilder) Build(ctx context.Context, audience string, t *AccessTo
 	}
 
 	// retrieve policies from user groups and add each policy rules and caveats to the biscuit
-	userPolicies, err := b.getUserPolicies(ctx, t.UserGroups)
+	userPolicies, err := b.getUserPolicies(ctx, audience, t.UserGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -94,14 +94,14 @@ func DecodeB64PrivateKey(b64key string) (sig.Keypair, error) {
 	return kp, nil
 }
 
-func (b *biscuitBuilder) getUserPolicies(ctx context.Context, userGroups []string) ([]*hubauth.BiscuitPolicy, error) {
-	allPolicies, err := b.db.ListBiscuitPolicies(ctx)
+func (b *biscuitBuilder) getUserPolicies(ctx context.Context, audience string, userGroups []string) ([]*hubauth.BiscuitPolicy, error) {
+	aud, err := b.db.GetAudience(ctx, audience)
 	if err != nil {
 		return nil, err
 	}
 
 	var userPolicies []*hubauth.BiscuitPolicy
-	for _, p := range allPolicies {
+	for _, p := range aud.Policies {
 	outer:
 		for _, g := range p.Groups {
 			for _, ug := range userGroups {

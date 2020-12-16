@@ -219,8 +219,43 @@ func (c *audiencesSetUserGroupsCmd) Run(cfg *Config) error {
 	}
 	return cfg.DB.MutateAudience(context.Background(), c.AudienceURL, []*hubauth.AudienceMutation{mut})
 }
-		})
 
+type audiencesUpdateUserGroupsCmd struct {
+	AudienceURL  string   `kong:"required,name='audience-url',help='audience URL'"`
+	Domain       string   `kong:"required,help='G Suite domain name'"`
+	APIUser      string   `kong:"name='api-user',help='G Suite user email to impersonate for API calls'"`
+	AddGroups    []string `kong:"name='add-groups',help='comma-separated group IDs to add'"`
+	DeleteGroups []string `kong:"name='delete-groups',help='comma-separated group IDs to delete'"`
+}
+
+func (c *audiencesUpdateUserGroupsCmd) Run(cfg *Config) error {
+	var muts []*hubauth.AudienceUserGroupsMutation
+	for _, groupID := range c.AddGroups {
+		muts = append(muts, &hubauth.AudienceUserGroupsMutation{
+			Op:    hubauth.AudienceUserGroupsMutationOpAddGroup,
+			Group: groupID,
+		})
+	}
+	for _, groupID := range c.DeleteGroups {
+		muts = append(muts, &hubauth.AudienceUserGroupsMutation{
+			Op:    hubauth.AudienceUserGroupsMutationOpDeleteGroup,
+			Group: groupID,
+		})
+	}
+	if c.APIUser != "" {
+		muts = append(muts, &hubauth.AudienceUserGroupsMutation{
+			Op:      hubauth.AudienceUserGroupsMutationOpSetAPIUser,
+			APIUser: c.APIUser,
+		})
+	}
+
+	return cfg.DB.MutateAudienceUserGroups(context.Background(), c.AudienceURL, c.Domain, muts)
+}
+
+type audiencesDeleteUserGroupsCmd struct {
+	AudienceURL string `kong:"required,name='audience-url',help='audience URL'"`
+	Domain      string `kong:"required,help='G Suite domain name'"`
+}
 
 func (c *audiencesDeleteUserGroupsCmd) Run(cfg *Config) error {
 	mut := &hubauth.AudienceMutation{

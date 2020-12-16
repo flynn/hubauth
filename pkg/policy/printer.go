@@ -2,10 +2,20 @@ package policy
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/flynn/biscuit-go/parser"
 )
+
+func Format(r io.Reader) (string, error) {
+	d, err := Parse(r)
+	if err != nil {
+		return "", err
+	}
+
+	return Print(d)
+}
 
 func Print(d *Document) (string, error) {
 	p := &printer{

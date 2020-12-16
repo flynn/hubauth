@@ -18,7 +18,7 @@ var policyLexer = stateful.MustSimple(append(
 ))
 
 type Document struct {
-	Policies []*DocumentPolicy `@@*`
+	Policies []*DocumentPolicy `@@+`
 }
 
 type DocumentPolicy struct {

@@ -17,5 +17,4 @@ type CLI struct {
 
 	Clients   clientsCmd   `kong:"cmd,help='manage oauth clients'"`
 	Audiences audiencesCmd `kong:"cmd,help='manage audiences'"`
-	Policies  policiesCmd  `kong:"cmd,help='manage policies'"`
 }

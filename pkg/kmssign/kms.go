@@ -8,6 +8,8 @@ import (
 	"encoding/pem"
 	"io"
 	"math/big"
+	"net/url"
+	"strings"
 
 	gax "github.com/googleapis/gax-go/v2"
 	"golang.org/x/crypto/cryptobyte"
@@ -15,6 +17,18 @@ import (
 	"golang.org/x/exp/errors/fmt"
 	kmspb "google.golang.org/genproto/googleapis/cloud/kms/v1"
 )
+
+type AudienceKeyNamer func(audience string) string
+
+func AudienceKeyNameFunc(projectID, location, keyRing string) func(string) string {
+	return func(aud string) string {
+		u, err := url.Parse(aud)
+		if err != nil {
+			return ""
+		}
+		return fmt.Sprintf("projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s/cryptoKeyVersions/1", projectID, location, keyRing, strings.Replace(u.Host, ".", "_", -1))
+	}
+}
 
 type KMSClient interface {
 	AsymmetricSign(ctx context.Context, req *kmspb.AsymmetricSignRequest, opts ...gax.CallOption) (*kmspb.AsymmetricSignResponse, error)

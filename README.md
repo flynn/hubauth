@@ -134,6 +134,22 @@ Create a new job:
 - URL: use the hubauth-int URL: `<URL>/cron`
 
 
+## Enabling Biscuit
+
+To use biscuit tokens instead of bearers, configure the following:
+
+### In Security > Secret manager
+
+Create new secret 
+- HUBAUTH_BISCUIT_ROOT_PRIVKEY: a base64 encoded p256 EC private key
+
+### In variables
+
+Add a new variable
+- TOKEN_TYPE: `Biscuit`
+- BISCUIT_ROOT_PRIVKEY:  set to the resource ID from `HUBAUTH_BISCUIT_ROOT_PRIVKEY`
+
+
 ## Hubauth CLI
 
 Configure gcloud auth application-default with the following command, and follow the browser instructions:

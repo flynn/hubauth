@@ -15,6 +15,7 @@ import (
 	"github.com/flynn/hubauth/pkg/datastore"
 	"github.com/flynn/hubauth/pkg/httpapi"
 	"github.com/flynn/hubauth/pkg/idp"
+	"github.com/flynn/hubauth/pkg/idp/token"
 	"github.com/flynn/hubauth/pkg/kmssign"
 	"github.com/flynn/hubauth/pkg/rp/google"
 	"go.opencensus.io/plugin/ochttp"
@@ -65,7 +66,33 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to access secret version for %s: %s", name, err)
 		}
-		return result.Payload.String()
+
+		// Payload.String() would return a json encoded version of the secret: {"data": "..."}
+		// the actual secret is in Data.
+		return string(result.Payload.Data)
+	}
+
+	audienceKeyNamer := kmssign.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING"))
+
+	var accessTokenBuilder token.AccessTokenBuilder
+	var rootPubKey []byte
+	tokenType, exists := os.LookupEnv("TOKEN_TYPE")
+	if !exists {
+		tokenType = "Bearer"
+	}
+	switch tokenType {
+	case "Bearer":
+		accessTokenBuilder = token.NewBearerBuilder(kmsClient, audienceKeyNamer)
+	case "Biscuit":
+		biscuitKey, err := token.DecodeB64PrivateKey(secret("BISCUIT_ROOT_PRIVKEY"))
+		if err != nil {
+			log.Fatalf("failed to initialize biscuit keypair: %v", err)
+		}
+
+		rootPubKey = biscuitKey.Public().Bytes()
+		accessTokenBuilder = token.NewBiscuitBuilder(kmsClient, audienceKeyNamer, biscuitKey)
+	default:
+		log.Fatalf("invalid TOKEN_TYPE, must be one of: Bearer, Biscuit")
 	}
 
 	log.Fatal(http.ListenAndServe(":"+httpPort, &ochttp.Handler{
@@ -77,15 +104,15 @@ func main() {
 					os.Getenv("RP_GOOGLE_CLIENT_SECRET"),
 					os.Getenv("BASE_URL")+"/rp/google",
 				),
-				kmsClient,
 				[]byte(secret("CODE_KEY_SECRET")),
 				refreshKey,
-				idp.AudienceKeyNameFunc(os.Getenv("PROJECT_ID"), os.Getenv("KMS_LOCATION"), os.Getenv("KMS_KEYRING")),
+				accessTokenBuilder,
 			),
 			CookieKey:  []byte(secret("COOKIE_KEY_SECRET")),
 			ProjectID:  os.Getenv("PROJECT_ID"),
 			Repository: fmt.Sprintf("https://source.developers.google.com/p/%s/r/%s", os.Getenv("PROJECT_ID"), os.Getenv("BUILD_REPO")),
 			Revision:   os.Getenv("BUILD_REV"),
+			PublicKey:  rootPubKey,
 		}),
 	},
 	))

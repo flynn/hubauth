@@ -322,7 +322,7 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 			}
 		}
 
-		accessToken, tokenType, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
+		accessToken, tokenType, err = s.steps.BuildAccessToken(parentCtx, req.Audience, &token.AccessTokenData{
 			ClientID:      req.ClientID,
 			UserID:        codeInfo.UserId,
 			UserEmail:     codeInfo.UserEmail,
@@ -358,13 +358,13 @@ func (s *idpService) ExchangeCode(parentCtx context.Context, req *hubauth.Exchan
 	return res, nil
 }
 
-func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.AccessToken, error) {
-	oldToken, err := s.decodeRefreshToken(ctx, req.RefreshToken)
+func (s *idpService) RefreshToken(parentCtx context.Context, req *hubauth.RefreshTokenRequest) (*hubauth.AccessToken, error) {
+	oldToken, err := s.decodeRefreshToken(parentCtx, req.RefreshToken)
 	if err != nil {
 		return nil, err
 	}
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := errgroup.WithContext(parentCtx)
 
 	var userGroups []string
 	g.Go(func() (err error) {
@@ -411,7 +411,7 @@ func (s *idpService) RefreshToken(ctx context.Context, req *hubauth.RefreshToken
 			}
 		}
 
-		accessToken, tokenType, err = s.steps.BuildAccessToken(ctx, req.Audience, &token.AccessTokenData{
+		accessToken, tokenType, err = s.steps.BuildAccessToken(parentCtx, req.Audience, &token.AccessTokenData{
 			ClientID:      req.ClientID,
 			UserID:        oldToken.UserID,
 			UserEmail:     oldToken.UserEmail,

@@ -858,7 +858,6 @@ func TestMutateAudiencePolicy(t *testing.T) {
 	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-
 			aud := &hubauth.Audience{
 				URL:      "https://cluster.mutate.example.com",
 				Policies: tt.before,

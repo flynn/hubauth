@@ -215,7 +215,7 @@ func TestClientUpdateCmd(t *testing.T) {
 		}
 		cfg := &Config{DB: &mockClientDatastore{}}
 		expectedMutations := []*hubauth.ClientMutation{
-			&hubauth.ClientMutation{
+			{
 				Op:                 hubauth.ClientMutationOpSetRefreshTokenExpiry,
 				RefreshTokenExpiry: 5 * time.Minute,
 			},
@@ -232,19 +232,19 @@ func TestClientUpdateCmd(t *testing.T) {
 		}
 		cfg := &Config{DB: &mockClientDatastore{}}
 		expectedMutations := []*hubauth.ClientMutation{
-			&hubauth.ClientMutation{
+			{
 				Op:                 hubauth.ClientMutationOpSetRefreshTokenExpiry,
 				RefreshTokenExpiry: 5 * time.Minute,
 			},
-			&hubauth.ClientMutation{
+			{
 				Op:          hubauth.ClientMutationOpAddRedirectURI,
 				RedirectURI: "http://localhost:1234",
 			},
-			&hubauth.ClientMutation{
+			{
 				Op:          hubauth.ClientMutationOpAddRedirectURI,
 				RedirectURI: "http://localhost:5678",
 			},
-			&hubauth.ClientMutation{
+			{
 				Op:          hubauth.ClientMutationOpDeleteRedirectURI,
 				RedirectURI: "http://removed-domain:1234",
 			},

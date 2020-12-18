@@ -1,0 +1,24 @@
+policy "developer" {
+    rules {
+        *allow_method("Status")
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, "Status")
+        *allow_method($0)
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, $0),
+                arg(#ambient, "env", "DEV")
+            @   $0 in ["Create", "Delete"]
+    }
+
+    caveats {[
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+    ||
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+            @   $0 == "method"
+    ], [
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+    ]}
+}

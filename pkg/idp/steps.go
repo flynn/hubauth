@@ -122,19 +122,23 @@ func (s *steps) SignCode(ctx context.Context, signKey hmacpb.Key, code *signCode
 	return base64Encode(res), nil
 }
 
-func (s *steps) VerifyAudience(ctx context.Context, audienceURL, clientID, userID string) error {
+// VerifyAudience ensure the user can access the audience by verifying
+// that the user have at least one group belonging to the audience policies groups
+// It returns the list of user groups, or an error when the user is not allowed to access this audience.
+// When no audience is provided, no group and no error is returned,
+func (s *steps) VerifyAudience(ctx context.Context, audienceURL, clientID, userID string) ([]string, error) {
 	if audienceURL == "" {
-		return nil
+		return nil, nil
 	}
 	audience, err := s.db.GetAudience(ctx, audienceURL)
 	if err != nil {
 		if errors.Is(err, hubauth.ErrNotFound) {
-			return &hubauth.OAuthError{
+			return nil, &hubauth.OAuthError{
 				Code:        "invalid_request",
 				Description: "unknown audience",
 			}
 		}
-		return fmt.Errorf("idp: error getting audience %s: %w", audienceURL, err)
+		return nil, fmt.Errorf("idp: error getting audience %s: %w", audienceURL, err)
 	}
 	foundClient := false
 	for _, c := range audience.ClientIDs {
@@ -145,20 +149,20 @@ func (s *steps) VerifyAudience(ctx context.Context, audienceURL, clientID, userI
 	}
 	if !foundClient {
 		clog.Set(ctx, zap.Strings("audience_client_ids", audience.ClientIDs))
-		return &hubauth.OAuthError{
+		return nil, &hubauth.OAuthError{
 			Code:        "invalid_client",
 			Description: "unknown client for audience",
 		}
 	}
 
-	err = s.checkUser(ctx, audience, userID)
+	userGroups, err := s.checkUser(ctx, audience, userID)
 	if errors.Is(err, hubauth.ErrUnauthorizedUser) {
-		return &hubauth.OAuthError{
+		return nil, &hubauth.OAuthError{
 			Code:        "access_denied",
 			Description: "user is not authorized for access",
 		}
 	}
-	return err
+	return userGroups, err
 }
 
 func (s *steps) VerifyUserGroups(ctx context.Context, userID string) error {
@@ -175,10 +179,10 @@ func (s *steps) VerifyUserGroups(ctx context.Context, userID string) error {
 	return nil
 }
 
-func (s *steps) checkUser(ctx context.Context, cluster *hubauth.Audience, userID string) error {
+func (s *steps) checkUser(ctx context.Context, cluster *hubauth.Audience, userID string) ([]string, error) {
 	groups, err := s.db.GetCachedMemberGroups(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("idp: error getting cached groups for user: %w", err)
+		return nil, fmt.Errorf("idp: error getting cached groups for user: %w", err)
 	}
 
 	// TODO: log allowed groups and cached groups
@@ -196,9 +200,9 @@ outer:
 		}
 	}
 	if !allowed {
-		return hubauth.ErrUnauthorizedUser
+		return nil, hubauth.ErrUnauthorizedUser
 	}
-	return nil
+	return groups, nil
 }
 
 type refreshTokenData struct {

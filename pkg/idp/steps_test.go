@@ -312,11 +312,12 @@ func TestVerifyAudience(t *testing.T) {
 	require.NoError(t, err)
 
 	testCases := []struct {
-		Desc        string
-		Err         error
-		AudienceURL string
-		ClientID    string
-		UserID      string
+		Desc           string
+		Err            error
+		ExpectedGroups []string
+		AudienceURL    string
+		ClientID       string
+		UserID         string
 	}{
 		{
 			Desc: "no audience does nothing",
@@ -350,21 +351,23 @@ func TestVerifyAudience(t *testing.T) {
 			},
 		},
 		{
-			Desc:        "all valid no error",
-			AudienceURL: validAudienceURL,
-			ClientID:    validClientID,
-			UserID:      validUserID,
-			Err:         nil,
+			Desc:           "all valid no error",
+			AudienceURL:    validAudienceURL,
+			ExpectedGroups: []string{validGroupID},
+			ClientID:       validClientID,
+			UserID:         validUserID,
+			Err:            nil,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.Desc, func(t *testing.T) {
-			err := s.VerifyAudience(context.Background(), testCase.AudienceURL, testCase.ClientID, testCase.UserID)
+			grps, err := s.VerifyAudience(context.Background(), testCase.AudienceURL, testCase.ClientID, testCase.UserID)
 			if testCase.Err != nil {
 				require.Equal(t, testCase.Err, err)
 			} else {
 				require.NoError(t, err)
+				require.Equal(t, testCase.ExpectedGroups, grps)
 			}
 		})
 	}

@@ -57,11 +57,16 @@ type ClientMutation struct {
 	RefreshTokenExpiry time.Duration
 }
 
-type AudienceStore interface {
+type AudienceGetterStore interface {
 	GetAudience(ctx context.Context, url string) (*Audience, error)
+}
+
+type AudienceStore interface {
+	AudienceGetterStore
 	CreateAudience(ctx context.Context, audience *Audience) error
 	MutateAudience(ctx context.Context, url string, mut []*AudienceMutation) error
 	MutateAudienceUserGroups(ctx context.Context, url string, domain string, mut []*AudienceUserGroupsMutation) error
+	MutateAudiencePolicy(ctx context.Context, url string, policyName string, mut []*AudiencePolicyMutation) error
 	ListAudiencesForClient(ctx context.Context, clientID string) ([]*Audience, error)
 	ListAudiences(ctx context.Context) ([]*Audience, error)
 	DeleteAudience(ctx context.Context, url string) error
@@ -73,6 +78,7 @@ type Audience struct {
 	Type       string              `json:"type"`
 	ClientIDs  []string            `json:"-"`
 	UserGroups []*GoogleUserGroups `json:"-"`
+	Policies   []*BiscuitPolicy    `json:"-"`
 	CreateTime time.Time           `json:"-"`
 	UpdateTime time.Time           `json:"-"`
 }
@@ -80,6 +86,12 @@ type Audience struct {
 type GoogleUserGroups struct {
 	Domain  string
 	APIUser string
+	Groups  []string
+}
+
+type BiscuitPolicy struct {
+	Name    string
+	Content string
 	Groups  []string
 }
 
@@ -91,6 +103,8 @@ const (
 	AudienceMutationOpSetUserGroups
 	AudienceMutationOpDeleteUserGroups
 	AudienceMutationSetType
+	AudienceMutationSetPolicy
+	AudienceMutationDeletePolicy
 )
 
 type AudienceMutation struct {
@@ -99,6 +113,7 @@ type AudienceMutation struct {
 	ClientID   string
 	Type       string
 	UserGroups GoogleUserGroups
+	Policy     BiscuitPolicy
 }
 
 type AudienceUserGroupsMutationOp byte
@@ -113,6 +128,21 @@ type AudienceUserGroupsMutation struct {
 	Op AudienceUserGroupsMutationOp
 
 	APIUser string
+	Group   string
+}
+
+type AudiencePolicyMutationOp byte
+
+const (
+	AudiencePolicyMutationOpAddGroup AudiencePolicyMutationOp = iota
+	AudiencePolicyMutationOpDeleteGroup
+	AudiencePolicyMutationOpSetContent
+)
+
+type AudiencePolicyMutation struct {
+	Op AudiencePolicyMutationOp
+
+	Content string
 	Group   string
 }
 

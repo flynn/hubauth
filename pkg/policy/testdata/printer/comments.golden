@@ -1,0 +1,40 @@
+// some comment
+policy "developer" {
+    rules {
+        // comment this specific rule
+        // on multiple lines
+        *allow_method("Status")
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, "Status")
+        *allow_method($0)
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, $0),
+                arg(#ambient, "env", "DEV")
+            @   $0 in ["Create", "Delete"]
+    }
+
+    caveats {[
+        // this caveat is required
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+    ||
+        // this caveat is required too
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+            @   $0 == "method"
+    ], [
+        *authorized($0)
+            <-  allow_method(#authority, $0)
+    ]}
+}
+
+// some comment
+policy "admin" {
+    rules {
+        // comment this specific rule
+        // on multiple lines
+        *allow_method("Status")
+            <-  service(#ambient, "demo.api.v1.Demo"),
+                method(#ambient, "Status")
+    }
+}

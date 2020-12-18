@@ -11,11 +11,14 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/flynn/hubauth/pkg/hubauth"
+	"github.com/flynn/hubauth/pkg/policy"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/stretchr/testify/mock"
@@ -77,7 +80,10 @@ func (m *mockAudienceDatastore) MutateAudience(ctx context.Context, url string, 
 	args := m.Called(ctx, url, mut)
 	return args.Error(0)
 }
-
+func (m *mockAudienceDatastore) MutateAudiencePolicy(ctx context.Context, url string, policyName string, mut []*hubauth.AudiencePolicyMutation) error {
+	args := m.Called(ctx, url, policyName, mut)
+	return args.Error(0)
+}
 func (m *mockAudienceDatastore) MutateAudienceUserGroups(ctx context.Context, url string, domain string, mut []*hubauth.AudienceUserGroupsMutation) error {
 	args := m.Called(ctx, url, domain, mut)
 	return args.Error(0)
@@ -622,4 +628,365 @@ func TestAudienceUpdateTypeCmd(t *testing.T) {
 	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, muts).Return(nil)
 
 	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudienceListPoliciesCmd(t *testing.T) {
+	cmd := &audiencesListPoliciesCmd{
+		AudienceURL: "https://audience.url",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	policy1Content := "// policy1 description\npolicy \"policy1\" {}"
+	policy2Content := "// policy2 description\npolicy \"policy2\" {}"
+	policy3Content := "policy \"policy3\" {}"
+
+	audience := &hubauth.Audience{
+		URL: cmd.AudienceURL,
+		Policies: []*hubauth.BiscuitPolicy{
+			{
+				Name:    "policy1",
+				Content: policy1Content,
+				Groups:  []string{"grp1", "grp2"},
+			},
+			{
+				Name:    "policy2",
+				Content: policy2Content,
+				Groups:  nil,
+			},
+			{
+				Name:    "policy3",
+				Content: policy3Content,
+				Groups:  nil,
+			},
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.AudienceURL).Return(audience, nil)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	require.NoError(t, cmd.Run(cfg))
+
+	os.Stdout = origStdout
+
+	buf := make([]byte, 2048)
+	n, err := r.Read(buf)
+	require.NoError(t, err)
+
+	expectedBuf := new(bytes.Buffer)
+	tw := table.NewWriter()
+	tw.SetOutputMirror(expectedBuf)
+	tw.AppendHeader(table.Row{"Name", "Groups", "Description"})
+	for _, p := range audience.Policies {
+		tw.AppendRow(table.Row{p.Name, p.Groups, getFirstComment(p)})
+	}
+	tw.Render()
+
+	require.Equal(t, expectedBuf.String(), string(buf[:n]))
+}
+
+func TestAudiencesSetPoliciesCmd(t *testing.T) {
+	policy1Content := `// policy1
+policy "policy1" {
+    rules {
+        // rule1
+        *r1($a) <- f1($a)
+    }
+}`
+
+	policy2Content := `// policy2
+policy "policy2" {}
+`
+
+	policyFile, err := ioutil.TempFile(os.TempDir(), "testaudiencessetpoliciescmd-")
+	require.NoError(t, err)
+	defer func() {
+		policyFile.Close()
+		os.Remove(policyFile.Name())
+	}()
+
+	_, err = policyFile.WriteString(policy1Content)
+	require.NoError(t, err)
+	_, err = policyFile.WriteString(policy2Content)
+	require.NoError(t, err)
+
+	groups := []string{"grp1", "grp2"}
+
+	cmd := &audiencesSetPoliciesCmd{
+		AudienceURL: "https://audience.url",
+		Filepath:    policyFile.Name(),
+		Groups:      groups,
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	policy1ContentFmt, err := policy.Format(strings.NewReader(policy1Content))
+	require.NoError(t, err)
+	policy2ContentFmt, err := policy.Format(strings.NewReader(policy2Content))
+	require.NoError(t, err)
+
+	expectedMuts := []*hubauth.AudienceMutation{
+		{
+			Op: hubauth.AudienceMutationSetPolicy,
+			Policy: hubauth.BiscuitPolicy{
+				Name:    "policy1",
+				Content: policy1ContentFmt,
+				Groups:  groups,
+			},
+		},
+		{
+			Op: hubauth.AudienceMutationSetPolicy,
+			Policy: hubauth.BiscuitPolicy{
+				Name:    "policy2",
+				Content: policy2ContentFmt,
+				Groups:  groups,
+			},
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, expectedMuts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudiencesUpdatePolicyCmd(t *testing.T) {
+	policy1Content := "// policy1\npolicy \"policy1\" {}"
+
+	policy1ContentFmt, err := policy.Format(strings.NewReader(policy1Content))
+	require.NoError(t, err)
+
+	policyFile, err := ioutil.TempFile(os.TempDir(), "testaudiencesupdatepoliciescmd-")
+	require.NoError(t, err)
+	defer func() {
+		policyFile.Close()
+		os.Remove(policyFile.Name())
+	}()
+
+	_, err = policyFile.WriteString(policy1Content)
+	require.NoError(t, err)
+
+	cmd := &audiencesUpdatePolicyCmd{
+		AudienceURL:  "https://audience.url",
+		PolicyName:   "policy1",
+		Filepath:     policyFile.Name(),
+		AddGroups:    []string{"grp1", "grp2"},
+		DeleteGroups: []string{"grp3"},
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	expectedMuts := []*hubauth.AudiencePolicyMutation{
+		{
+			Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+			Group: "grp1",
+		},
+		{
+			Op:    hubauth.AudiencePolicyMutationOpAddGroup,
+			Group: "grp2",
+		},
+		{
+			Op:    hubauth.AudiencePolicyMutationOpDeleteGroup,
+			Group: "grp3",
+		},
+		{
+			Op:      hubauth.AudiencePolicyMutationOpSetContent,
+			Content: policy1ContentFmt,
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudiencePolicy", mock.Anything, cmd.AudienceURL, cmd.PolicyName, expectedMuts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+
+	cmd.PolicyName = "not-existing-policy"
+	require.Error(t, cmd.Run(cfg))
+}
+
+func TestAudiencesDeletePolicyCmd(t *testing.T) {
+	cmd := audiencesDeletePolicyCmd{
+		AudienceURL: "https://audience.url",
+		PolicyName:  "policy1",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	expectedMuts := []*hubauth.AudienceMutation{
+		{
+			Op: hubauth.AudienceMutationDeletePolicy,
+			Policy: hubauth.BiscuitPolicy{
+				Name: cmd.PolicyName,
+			},
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("MutateAudience", mock.Anything, cmd.AudienceURL, expectedMuts).Return(nil)
+
+	require.NoError(t, cmd.Run(cfg))
+}
+
+func TestAudiencesNewPolicyCmd(t *testing.T) {
+	cmd := &audiencesNewPolicyCmd{}
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	require.NoError(t, cmd.Run(&Config{}))
+
+	os.Stdout = origStdout
+
+	buf := make([]byte, 2048)
+	n, err := r.Read(buf)
+	require.NoError(t, err)
+
+	policyTemplateFmt, err := policy.Format(strings.NewReader(policyTemplate))
+	require.NoError(t, err)
+
+	require.Equal(t, policyTemplateFmt, string(buf[:n]))
+
+	policyFile, err := ioutil.TempFile(os.TempDir(), "testaudiencesnewpolicycmd-")
+	require.NoError(t, err)
+	defer func() {
+		policyFile.Close()
+		os.Remove(policyFile.Name())
+	}()
+
+	cmd.Filepath = policyFile.Name()
+	require.NoError(t, cmd.Run(&Config{}))
+
+	out, err := ioutil.ReadFile(policyFile.Name())
+	require.NoError(t, err)
+	require.Equal(t, policyTemplateFmt, string(out))
+}
+
+func TestAudiencesValidatePoliciesCmd(t *testing.T) {
+	testCases := []struct {
+		desc        string
+		content     string
+		expectValid bool
+	}{
+		{
+			desc:        "valid policy",
+			content:     `policy "p1" {}`,
+			expectValid: true,
+		},
+		{
+			desc:        "invalid policy",
+			content:     `policy {}`,
+			expectValid: false,
+		},
+		{
+			desc:        "empty",
+			content:     ``,
+			expectValid: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			policyFile, err := ioutil.TempFile(os.TempDir(), "testaudiencesvalidatepolicycmd-")
+			require.NoError(t, err)
+			defer func() {
+				policyFile.Close()
+				os.Remove(policyFile.Name())
+			}()
+
+			_, err = policyFile.WriteString(tc.content)
+			require.NoError(t, err)
+
+			cmd := &audiencesValidatePoliciesCmd{
+				Filepath: policyFile.Name(),
+			}
+
+			err = cmd.Run(&Config{})
+			if tc.expectValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestAudiencesDumpPoliciesCmd(t *testing.T) {
+	cmd := audiencesDumpPoliciesCmd{
+		AudienceURL: "https://audience.url",
+	}
+
+	cfg := &Config{
+		DB: &mockAudienceDatastore{},
+	}
+
+	p1Content := "policy \"p1\" {}"
+	p2Content := "policy \"p2\" {}"
+	p3Content := "policy \"p3\" {}"
+
+	audience := &hubauth.Audience{
+		URL: cmd.AudienceURL,
+		Policies: []*hubauth.BiscuitPolicy{
+			{
+				Name:    "p1",
+				Content: p1Content,
+			},
+			{
+				Name:    "p2",
+				Content: p2Content,
+			},
+			{
+				Name:    "p3",
+				Content: p3Content,
+			},
+		},
+	}
+
+	cfg.DB.(*mockAudienceDatastore).On("GetAudience", mock.Anything, cmd.AudienceURL).Return(audience, nil)
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	require.NoError(t, cmd.Run(cfg))
+
+	buf := make([]byte, 2048)
+	n, err := r.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, strings.Join([]string{p1Content, p2Content, p3Content}, "\n\n")+"\n", string(buf[:n]))
+
+	cmd.PolicyNames = []string{"p1", "p3"}
+	require.NoError(t, cmd.Run(cfg))
+
+	os.Stdout = origStdout
+
+	n, err = r.Read(buf)
+	require.NoError(t, err)
+
+	expectedOut := strings.Join([]string{p1Content, p3Content}, "\n\n") + "\n"
+	require.Equal(t, expectedOut, string(buf[:n]))
+
+	policyFile, err := ioutil.TempFile(os.TempDir(), "testaudiencesdumppolicycmd-")
+	require.NoError(t, err)
+	defer func() {
+		policyFile.Close()
+		os.Remove(policyFile.Name())
+	}()
+	cmd.Filepath = policyFile.Name()
+	require.NoError(t, cmd.Run(cfg))
+
+	got, err := ioutil.ReadFile(policyFile.Name())
+	require.NoError(t, err)
+	require.Equal(t, expectedOut, string(got))
 }

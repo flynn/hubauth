@@ -12,7 +12,7 @@ require (
 	github.com/golang/protobuf v1.4.3
 	github.com/googleapis/gax-go/v2 v2.0.5
 	github.com/jedib0t/go-pretty/v6 v6.0.5
-	github.com/stretchr/testify v1.6.1
+	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.22.5
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.16.0

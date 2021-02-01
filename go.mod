@@ -13,7 +13,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.0.5
 	github.com/jedib0t/go-pretty/v6 v6.0.5
 	github.com/stretchr/testify v1.6.1
-	go.opencensus.io v0.22.5
+	go.opencensus.io v0.22.6
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20201208171446-5f87f3452ae9

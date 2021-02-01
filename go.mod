@@ -11,7 +11,7 @@ require (
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
 	github.com/golang/protobuf v1.4.3
 	github.com/googleapis/gax-go/v2 v2.0.5
-	github.com/jedib0t/go-pretty/v6 v6.0.5
+	github.com/jedib0t/go-pretty/v6 v6.1.0
 	github.com/stretchr/testify v1.6.1
 	go.opencensus.io v0.22.5
 	go.uber.org/multierr v1.6.0 // indirect

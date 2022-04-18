@@ -34,6 +34,7 @@ func (clockImpl) Now() time.Time {
 type Config struct {
 	IdP        hubauth.IdPService
 	CookieKey  hmacpb.Key
+	PublicKey  []byte
 	ProjectID  string
 	Repository string
 	Revision   string
@@ -87,6 +88,8 @@ func (a *api) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Access-Control-Allow-Methods", "GET")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 		w.WriteHeader(http.StatusOK)
+	case req.Method == "GET" && req.URL.Path == "/public-key":
+		a.PublicKey(w, req)
 	case req.Method == "GET" && req.URL.Path == "/":
 		http.Redirect(w, req, "https://flynn.io/", http.StatusFound)
 	case req.Method == "GET" && req.URL.Path == "/privacy":
@@ -329,11 +332,12 @@ func (a *api) Token(w http.ResponseWriter, req *http.Request) {
 	switch req.Form.Get("grant_type") {
 	case "authorization_code":
 		res, err = a.IdP.ExchangeCode(req.Context(), &hubauth.ExchangeCodeRequest{
-			ClientID:     req.PostForm.Get("client_id"),
-			Audience:     aud,
-			RedirectURI:  req.PostForm.Get("redirect_uri"),
-			Code:         req.PostForm.Get("code"),
-			CodeVerifier: req.PostForm.Get("code_verifier"),
+			ClientID:      req.PostForm.Get("client_id"),
+			Audience:      aud,
+			RedirectURI:   req.PostForm.Get("redirect_uri"),
+			Code:          req.PostForm.Get("code"),
+			CodeVerifier:  req.PostForm.Get("code_verifier"),
+			UserPublicKey: req.PostForm.Get("user_public_key"),
 		})
 	case "refresh_token":
 		res, err = a.IdP.RefreshToken(req.Context(), &hubauth.RefreshTokenRequest{
@@ -391,6 +395,28 @@ func (a *api) Audiences(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	json.NewEncoder(w).Encode(res)
+}
+
+func (a *api) PublicKey(w http.ResponseWriter, req *http.Request) {
+	if len(a.Config.PublicKey) == 0 {
+		a.handleErr(w, req, &hubauth.OAuthError{
+			Code:        "unsupported_request",
+			Description: "no public key configured",
+		})
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusOK)
+
+	type key struct {
+		PublicKey []byte `json:"public-key"`
+	}
+	json.NewEncoder(w).Encode(&key{
+		PublicKey: a.Config.PublicKey,
+	})
 }
 
 func (a *api) handleErr(w http.ResponseWriter, req *http.Request, err error) {
